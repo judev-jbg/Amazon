@@ -10,37 +10,26 @@ from infrastructure.error_handling import EnhancedErrorHandler
 from infrastructure.metrics_collector import MetricsCollector
 from core.database_manager import DatabaseManager
 from services.file_processor import FileProcessor
+from infrastructure.base.async_service import AsyncService
 
 
-class ShipmentService:
+class ShipmentService(AsyncService):
     """
     Servicio para procesar actualizaciones de envíos
-    Reemplaza: 09.Shipment.py
+
     """
 
     def __init__(self):
+        super().__init__()
         self.db_manager = DatabaseManager()
         self.file_processor = FileProcessor()
         self.error_handler = EnhancedErrorHandler()
         self.metrics = MetricsCollector()
-        self._initialized = False
-        self.logger = logging.getLogger(f"AmazonManagement")
+        # Registrar dependencias para AsyncService
+        self.register_dependency(self.db_manager)
+        self.register_dependency(self.error_handler)
+
         self.logger.info("🚀 ShipmentService inicializado")
-
-    async def _ensure_initialized(self):
-        """Inicializar componentes asíncronos si no están inicializados"""
-        if not self._initialized:
-            await self.db_manager.init_pool()
-            await self.db_manager.init_prestashop_pool()
-            await self.error_handler._init_email_client()
-            self._initialized = True
-
-    async def _ensure_finished(self):
-        """Finalizar componentes asíncronos si están inicializados"""
-        if self._initialized:
-            await self.db_manager.close_pool()
-            await self.db_manager.close_pool_prestashop()
-            self._initialized = False
 
     async def process_shipment_updates(self) -> bool:
         """
@@ -56,70 +45,71 @@ class ShipmentService:
         }
 
         try:
-            await self._ensure_initialized()
-            self.logger.info("Componentes inicializados correctamente")
+            async with self.lifecycle():
+                self.logger.info("Componentes inicializados correctamente")
 
-            # 1. Registrar inicio
-            await self.metrics.record_process_complementary_start('shipment_update')
+                # 1. Registrar inicio
+                await self.metrics.record_process_complementary_start('shipment_update')
 
-            # 2. Buscar archivos de envío
-            shipment_files = await self._get_shipment_files()
+                # 2. Buscar archivos de envío
+                shipment_files = await self._get_shipment_files()
 
-            if not shipment_files:
-                self.logger.info(
-                    "No se encontraron archivos de envío para procesar")
-                await self._ensure_finished()
-                self.logger.info("Componentes finalizados correctamente")
-                return True
+                if not shipment_files:
+                    self.logger.info(
+                        "No se encontraron archivos de envío para procesar")
+                    await self._ensure_finished()
+                    self.logger.info("Componentes finalizados correctamente")
+                    return True
 
-            total_processed = 0
+                total_processed = 0
 
-            # 3. Procesar cada archivo
-            for file_path in shipment_files:
-                try:
-                    process_context['current_file'] = str(file_path)
+                # 3. Procesar cada archivo
+                for file_path in shipment_files:
+                    try:
+                        process_context['current_file'] = str(file_path)
 
-                    # Leer archivo
-                    df_shipments = await self.file_processor.read_shipment_file(file_path)
+                        # Leer archivo
+                        df_shipments = await self.file_processor.read_shipment_file(file_path)
 
-                    if df_shipments.empty:
-                        await self.error_handler.handle_warning(f"Archivo vacío: {file_path}", process_context)
+                        if df_shipments.empty:
+                            await self.error_handler.handle_warning(f"Archivo vacío: {file_path}", process_context)
+                            continue
+
+                        # Validar datos
+                        df_validated = self._validate_shipment_data(
+                            df_shipments)
+
+                        # Actualizar bases de datos
+                        success = await self._update_shipment_databases(df_validated, process_context)
+
+                        if success:
+                            # Mover archivo procesado
+                            await self._move_processed_file(file_path)
+                            total_processed += len(df_validated)
+
+                    except Exception as file_error:
+                        await self.error_handler.handle_error(file_error, {
+                            **process_context,
+                            'file_path': str(file_path)
+                        })
                         continue
 
-                    # Validar datos
-                    df_validated = self._validate_shipment_data(df_shipments)
+                # 4. Registrar métricas finales
+                await self.metrics.record_process_complementary_success(
+                    'shipment_update',
+                    0,  # No hay inserts separados
+                    total_processed,
+                    0   # No hay errores de validación aquí
+                )
 
-                    # Actualizar bases de datos
-                    success = await self._update_shipment_databases(df_validated, process_context)
+                # 5. Notificación de éxito
+                if total_processed > 0:
+                    await self._send_success_notification(total_processed, len(shipment_files))
 
-                    if success:
-                        # Mover archivo procesado
-                        await self._move_processed_file(file_path)
-                        total_processed += len(df_validated)
+                await self._ensure_finished()
+                self.logger.info("Componentes finalizados correctamente")
 
-                except Exception as file_error:
-                    await self.error_handler.handle_error(file_error, {
-                        **process_context,
-                        'file_path': str(file_path)
-                    })
-                    continue
-
-            # 4. Registrar métricas finales
-            await self.metrics.record_process_complementary_success(
-                'shipment_update',
-                0,  # No hay inserts separados
-                total_processed,
-                0   # No hay errores de validación aquí
-            )
-
-            # 5. Notificación de éxito
-            if total_processed > 0:
-                await self._send_success_notification(total_processed, len(shipment_files))
-
-            await self._ensure_finished()
-            self.logger.info("Componentes finalizados correctamente")
-
-            return True
+                return True
 
         except Exception as e:
             await self.error_handler.handle_error(e, process_context)

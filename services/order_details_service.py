@@ -11,38 +11,26 @@ from infrastructure.error_handling import EnhancedErrorHandler
 from infrastructure.metrics_collector import MetricsCollector
 from core.database_manager import DatabaseManager
 from services.file_processor import FileProcessor
+from infrastructure.base.async_service import AsyncService
 
 
-class OrderDetailsService:
+class OrderDetailsService(AsyncService):
     """
     Servicio para procesar detalles de órdenes desde archivos Excel
-    Reemplaza: 07.OrdersDetails.py
+
     """
 
     def __init__(self):
+        super().__init__()
         self.db_manager = DatabaseManager()
         self.validator = DataValidator(self.db_manager)
         self.file_processor = FileProcessor()
         self.error_handler = EnhancedErrorHandler()
         self.metrics = MetricsCollector()
-        self._initialized = False
-        self.logger = logging.getLogger("AmazonManagement")
+        # Registrar dependencias
+        self.register_dependency(self.db_manager)
+        self.register_dependency(self.error_handler)
         self.logger.info("🚀 OrderDetailsService inicializado")
-
-    async def _ensure_initialized(self):
-        """Inicializar componentes asíncronos si no están inicializados"""
-        if not self._initialized:
-            await self.db_manager.init_pool()
-            await self.db_manager.init_prestashop_pool()
-            await self.error_handler._init_email_client()
-            self._initialized = True
-
-    async def _ensure_finished(self):
-        """Finalizar componentes asíncronos si están inicializados"""
-        if self._initialized:
-            await self.db_manager.close_pool()
-            await self.db_manager.close_pool_prestashop()
-            self._initialized = False
 
     async def process_order_details(self) -> bool:
         """
@@ -58,67 +46,67 @@ class OrderDetailsService:
         }
 
         try:
-            await self._ensure_initialized()
-            self.logger.info("Componentes inicializados correctamente")
+            async with self.lifecycle():
+                self.logger.info("Componentes inicializados correctamente")
 
-            # 1. Registrar inicio del proceso
-            await self.metrics.record_process_complementary_start('order_details')
+                # 1. Registrar inicio del proceso
+                await self.metrics.record_process_complementary_start('order_details')
 
-            # 2. Obtener archivo de datos
-            file_path = await self._get_order_details_file()
-            if not file_path:
-                self.logger.info(
-                    "No se encontró archivo de OrderDetails para procesar")
+                # 2. Obtener archivo de datos
+                file_path = await self._get_order_details_file()
+                if not file_path:
+                    self.logger.info(
+                        "No se encontró archivo de OrderDetails para procesar")
+                    await self._ensure_finished()
+                    self.logger.info("Componentes finalizados correctamente")
+                    return True
+
+                process_context['file_path'] = str(file_path)
+
+                # 3. Leer y procesar archivo
+                df_raw = await self.file_processor.read_excel_file(file_path)
+                if df_raw.empty:
+                    raise ValueError(
+                        f"El archivo {file_path} está vacío o no se pudo leer")
+
+                # 4. Transformar columnas según configuración
+                df_transformed = self._transform_columns(df_raw)
+
+                # 5. Validación robusta
+                df_to_insert, df_to_update, validation_errors = await self.validator.validate_order_details(df_transformed)
+
+                # 6. Log errores de validación
+                if validation_errors:
+                    for error in validation_errors:
+                        self.logger.warning(error)
+                        # await self.error_handler.handle_warning(error, process_context)
+
+                # 7. Procesar datos
+                insert_count = await self._process_inserts(df_to_insert) if not df_to_insert.empty else 0
+                update_count = await self._process_updates(df_to_update) if not df_to_update.empty else 0
+
+                # 8. Actualizar referencias (como en el código original)
+                if insert_count > 0:
+                    await self.db_manager.order_details.update_asin_references()
+
+                # 9. Actualizar datos de Prestashop
+                # await self._update_prestashop_references()
+
+                # 10. Registrar métricas de éxito
+                await self.metrics.record_process_complementary_success(
+                    'order_details',
+                    insert_count,
+                    update_count,
+                    len(validation_errors)
+                )
+
+                # 11. Notificación de éxito
+                await self._send_success_notification(insert_count, update_count, validation_errors)
+
                 await self._ensure_finished()
                 self.logger.info("Componentes finalizados correctamente")
+
                 return True
-
-            process_context['file_path'] = str(file_path)
-
-            # 3. Leer y procesar archivo
-            df_raw = await self.file_processor.read_excel_file(file_path)
-            if df_raw.empty:
-                raise ValueError(
-                    f"El archivo {file_path} está vacío o no se pudo leer")
-
-            # 4. Transformar columnas según configuración
-            df_transformed = self._transform_columns(df_raw)
-
-            # 5. Validación robusta
-            df_to_insert, df_to_update, validation_errors = await self.validator.validate_order_details(df_transformed)
-
-            # 6. Log errores de validación
-            if validation_errors:
-                for error in validation_errors:
-                    self.logger.warning(error)
-                    # await self.error_handler.handle_warning(error, process_context)
-
-            # 7. Procesar datos
-            insert_count = await self._process_inserts(df_to_insert) if not df_to_insert.empty else 0
-            update_count = await self._process_updates(df_to_update) if not df_to_update.empty else 0
-
-            # 8. Actualizar referencias (como en el código original)
-            if insert_count > 0:
-                await self.db_manager.order_details.update_asin_references()
-
-            # 9. Actualizar datos de Prestashop
-            # await self._update_prestashop_references()
-
-            # 10. Registrar métricas de éxito
-            await self.metrics.record_process_complementary_success(
-                'order_details',
-                insert_count,
-                update_count,
-                len(validation_errors)
-            )
-
-            # 11. Notificación de éxito
-            await self._send_success_notification(insert_count, update_count, validation_errors)
-
-            await self._ensure_finished()
-            self.logger.info("Componentes finalizados correctamente")
-
-            return True
 
         except Exception as e:
             await self.error_handler.handle_error(e, process_context)

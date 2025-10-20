@@ -19,6 +19,7 @@ class AmazonAPIClient:
     def __init__(self):
         self.session = None
         self.rate_limiter = RateLimiter(max_requests=100, window=60)
+        self.api_wrapper = AmazonSPAPIWrapper()
 
     async def __aenter__(self):
         self.session = aiohttp.ClientSession()

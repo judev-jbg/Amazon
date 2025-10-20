@@ -10,6 +10,7 @@ from infrastructure.metrics_collector import MetricsCollector
 from datetime import datetime
 from typing import List
 from models.extraction_config import ExtractionConfig, ExtractType
+from infrastructure.base.async_service import AsyncService
 
 """
 FUNCIONALIDAD:
@@ -21,28 +22,18 @@ FUNCIONALIDAD:
 """
 
 
-class OrderExtractionService:
+class OrderExtractionService(AsyncService):
     def __init__(self):
+        super().__init__()
         self.db_manager = DatabaseManager()
         self.api_client = AmazonAPIClient()
         self.error_handler = EnhancedErrorHandler()
         self.metrics = MetricsCollector()
-        self._initialized = False
-        self.logger = logging.getLogger(f"AmazonManagement")
+        # Registrar dependencias para AsyncService
+        self.register_dependency(self.db_manager)
+        self.register_dependency(self.error_handler)
+
         self.logger.info("🚀 OrderExtractionService inicializado")
-
-    async def _ensure_initialized(self):
-        """Inicializar componentes asíncronos si no están inicializados"""
-        if not self._initialized:
-            await self.db_manager.init_pool()
-            self._initialized = True
-            await self.error_handler._init_email_client()
-
-    async def _ensure_finished(self):
-        """Finalizar componentes asíncronos si están inicializados"""
-        if self._initialized:
-            await self.db_manager.close_pool()
-            self._initialized = False
 
     @asynccontextmanager
     async def error_context(self, process_mode: str, market_id: str = None):
@@ -67,44 +58,44 @@ class OrderExtractionService:
             'markets': config.markets
         }
         try:
-            await self._ensure_initialized()
-            self.logger.info("Componentes inicializados correctamente")
+            async with self.lifecycle():
+                self.logger.info("Componentes inicializados correctamente")
 
-            # 1. Iniciar métricas
-            await self.metrics.record_process_start(config)
-            self.logger.info("Metricas inicializadas correctamente")
+                # 1. Iniciar métricas
+                await self.metrics.record_process_start(config)
+                self.logger.info("Metricas inicializadas correctamente")
 
-            # 2. Obtener estrategia según tipo de extracción
-            strategy = self._get_extraction_strategy(config.extract_type)
-            self.logger.info(
-                f"Estrategia obtenida correctamente: {strategy.__class__.__name__}")
+                # 2. Obtener estrategia según tipo de extracción
+                strategy = self._get_extraction_strategy(config.extract_type)
+                self.logger.info(
+                    f"Estrategia obtenida correctamente: {strategy.__class__.__name__}")
 
-            # 3. Extraer órdenes usando la estrategia
-            orders = await strategy.extract(config)
-            if not orders:
-                self.logger.info("No se encuentran ordenes para procesar")
+                # 3. Extraer órdenes usando la estrategia
+                orders = await strategy.extract(config)
+                if not orders:
+                    self.logger.info("No se encuentran ordenes para procesar")
+                    await self.metrics.record_process_success(config, len(orders))
+                    await self._ensure_finished()
+                    self.logger.info("Componentes finalizados correctamente")
+                    return True
+
+                # 4. Procesar en lotes
+                if config.extract_type == ExtractType.STATUS_UPDATE:
+                    await self._process_status_updates(orders, config)
+                else:
+                    await self._process_orders_batch(orders, config)
+
+                # 5. Registrar éxito
                 await self.metrics.record_process_success(config, len(orders))
+
+                # Success notification (solo para procesos importantes)
+                if config.extract_type == ExtractType.DAILY_FULL:
+                    await self._send_success_notification(config, len(orders))
+
                 await self._ensure_finished()
                 self.logger.info("Componentes finalizados correctamente")
+
                 return True
-
-            # 4. Procesar en lotes
-            if config.extract_type == ExtractType.STATUS_UPDATE:
-                await self._process_status_updates(orders, config)
-            else:
-                await self._process_orders_batch(orders, config)
-
-            # 5. Registrar éxito
-            await self.metrics.record_process_success(config, len(orders))
-
-            # Success notification (solo para procesos importantes)
-            if config.extract_type == ExtractType.DAILY_FULL:
-                await self._send_success_notification(config, len(orders))
-
-            await self._ensure_finished()
-            self.logger.info("Componentes finalizados correctamente")
-
-            return True
 
         except Exception as e:
 
