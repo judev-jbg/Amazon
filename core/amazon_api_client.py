@@ -3,7 +3,7 @@ import datetime
 import aiohttp
 from typing import List, Dict, Tuple, Any
 from infrastructure.rate_limiter import RateLimiter, APIEndpoint, rate_limited
-from libs.transform import getOrders, getOrderItems, getSales
+from libs.transform import getOrder, getOrders, getOrderItems, getSales
 
 """
 FUNCIONALIDAD:
@@ -59,24 +59,56 @@ class AmazonAPIClient:
         max_retries = 3
         
         while retry_count < max_retries:
+            print("#" * 5, "=" * 70)
+            print("#" * 5, f" GET ORDERS: Intento {retry_count + 1} de {max_retries}")
+           
             try:
                 # Usar tu función existente pero con async
                 result = await asyncio.to_thread(
                     getOrders,
                     dateInit=date_from.isoformat(),
                     dateEnd=date_to.isoformat(),
-                    market=[market],
-                    tagSubjectMail=self.__class__.__name__
+                    market=[market]
                 )
                 
-                if result[1] == 1:  # Success
+                if result[1] == 1 and not result[0].empty:  # Success
                     return result[0].to_dict('records')
+
+                if result[1] == 1 and result[0].empty:  # Success pero sin datos
+                    return []
+            
+                if result[1] == 0 and result[0].empty: # Error
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        print("#" * 5, f" Error: Numero maximo de intentos ({max_retries}) alcanzados")
+                        print("#" * 5, "=" * 70)
+                        return []
+    
+
+                    print("#" * 5, f" -Error: Solicitud fallida, esperando {2 ** retry_count} segundos...")
+                    await asyncio.sleep(2 ** retry_count)  # Exponential backoff
+
+                
+                if result[1] == 0 and not result[0].empty and result[0]['code'].iloc[0]:  # Rate limit alcanzado
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        print("#" * 5, f" RateLimit: Numero maximo de intentos ({max_retries}) alcanzados")
+                        print("#" * 5, "=" * 70)
+                        return []
+    
+
+                    print("#" * 5, f" -RateLimit: Solicitud fallida, esperando {2 ** retry_count} segundos...")
+                    await asyncio.sleep(2 ** retry_count)  # Exponential backoff
                     
             except Exception as e:
                 retry_count += 1
                 if retry_count >= max_retries:
+                    print("#" * 5, f" Exception: Numero maximo de intentos ({max_retries}) alcanzados")
+                    print("#" * 5, f" Error: {e}")
+                    print("#" * 5, "=" * 70)
                     raise
-                    
+                
+                print("#" * 5, f" Exception: Solicitud fallida, esperando {2 ** retry_count} segundos...")
                 await asyncio.sleep(2 ** retry_count)  # Exponential backoff
                 
         return []
@@ -107,11 +139,11 @@ class AmazonAPIClient:
                 if result[1] == 1:  # Success
                     order_items = result[0].to_dict('records') if not result[0].empty else []
                     
-                    print(f"✅ Successfully retrieved {len(order_items)} items for order {order_id}")
+                    print(f"Elementos de la orden {order_id} recuperados con exito: {len(order_items)} elemento(s)")
                     return order_items
                 else:
                     # Error en la función legacy
-                    raise Exception(f"Legacy function returned error for order {order_id}")
+                    raise Exception(f"Error en la funcion para el pedido {order_id}")
                     
             except Exception as e:
                 retry_count += 1
@@ -130,6 +162,56 @@ class AmazonAPIClient:
                 await asyncio.sleep(2 ** retry_count)
         
         return []
+    
+    @rate_limited(APIEndpoint.ORDER)
+    async def get_order(self, order_id: str, max_retries: int = 3)-> List[Dict]:
+        """
+        Obtener una orden específica
+        
+        Args:
+            order_id: ID de la orden de Amazon
+            max_retries: Número máximo de reintentos
+            
+        Returns:
+            Orden en formato dict
+        """
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # Usar la función existente pero de forma asíncrona
+                result = await asyncio.to_thread(
+                    getOrder,
+                    orderId=order_id,
+                    tagSubjectMail="AmazonAPIClient.get_order"
+                )
+                
+                if result[1] == 1:  # Success
+                    order = result[0].to_dict('records')[0] if not result[0].empty else None
+                    
+                    print(f"Orden {order_id} recuperada con exito.")
+                    return order
+                else:
+                    # Error en la función legacy
+                    raise Exception(f"Error en la funcion get_order para el pedido {order_id}")
+                    
+            except Exception as e:
+                retry_count += 1
+                error_msg = str(e)
+                
+                # Manejar rate limiting específico
+                if "429" in error_msg or "throttl" in error_msg.lower():
+                    await self.rate_limiter.handle_rate_limit_error(APIEndpoint.ORDER_ITEMS)
+                    continue
+                
+                if retry_count >= max_retries:
+                    print(f"❌ Failed to get order items for {order_id} after {max_retries} retries: {e}")
+                    raise
+                
+                # Backoff exponencial para otros errores
+                await asyncio.sleep(2 ** retry_count)
+        
+        return None
 
     @rate_limited(APIEndpoint.SALES)
     async def get_sales_data(self, asin: str, sku: str, market: List[str], 
@@ -164,7 +246,7 @@ class AmazonAPIClient:
                 if result[1] == 1:  # Success
                     sales_data = result[0].to_dict('records') if not result[0].empty else []
                     
-                    print(f"✅ Successfully retrieved {len(sales_data)} sales records for {asin}/{sku}")
+                    print(f"Metricas de venta para {asin}/{sku} recuperadas con exito: {len(sales_data)} metrica(s)")
                     return sales_data
                 else:
                     # Error en la función legacy
@@ -212,7 +294,7 @@ class AmazonAPIClient:
             # Procesar resultados
             for order_id, items in zip(batch, batch_results):
                 if isinstance(items, Exception):
-                    print(f"⚠️ Error getting items for order {order_id}: {items}")
+                    print(f"⚠️ Error obteniendo elemento de la orden {order_id}: {items}")
                     result[order_id] = []
                 else:
                     result[order_id] = items
@@ -267,6 +349,68 @@ class AmazonAPIClient:
                 await asyncio.sleep(2)
         
         return all_sales_data
+    
+    async def batch_get_orders(self, order_ids: List[str]) -> List[dict]:
+        """
+        Obtener múltiples órdenes en paralelo (respetando rate limits)
+        """
+        tasks = []
+        for order_id in order_ids:
+            task = self.get_order(order_id)
+            tasks.append(task)
+        
+        # Ejecutar en lotes para no sobrecargar la API
+        batch_size = 10
+        all_orders = []
+        
+        for i in range(0, len(tasks), batch_size):
+            batch = tasks[i:i + batch_size]
+            batch_results = await asyncio.gather(*batch, return_exceptions=True)
+            
+            for result in batch_results:
+                if isinstance(result, Exception):
+                    print(f"Error in batch get orders: {result}")
+                elif result is not None:
+                    all_orders.append(result)
+            
+            # Pequeña pausa between batches
+            if i + batch_size < len(tasks):
+                await asyncio.sleep(1)
+        
+        return all_orders
+    
+    async def get_order_status(self, order_id: str) -> dict:
+        """Obtener solo el status de una orden específica"""
+        retry_count = 0
+        max_retries = 3
+        
+        while retry_count < max_retries:
+            try:
+                async with self.rate_limiter:
+                    # Usar función existente pero filtrar respuesta
+                    result = await asyncio.to_thread(
+                        getOrder,
+                        orderId=order_id,
+                        tagSubjectMail=self.__class__.__name__
+                    )
+                    
+                    if result[1] == 1 and not result[0].empty:  # Success
+                        order_data = result[0].iloc[0].to_dict()
+                        
+                        return {
+                            'amazonOrderId': order_data.get('amazonOrderId_o', order_id),
+                            'orderStatus': order_data.get('orderStatus_o'),
+                            'lastUpdateDate': order_data.get('lastUpdateDate_o')
+                        }
+                        
+            except Exception as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    raise
+                    
+                await asyncio.sleep(2 ** retry_count)
+        
+        return {}
     
     async def health_check(self) -> Dict[str, Any]:
         """

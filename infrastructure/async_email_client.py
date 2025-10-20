@@ -1,4 +1,4 @@
-import aiosmtpd
+import aiosmtplib as aiosmtpd
 import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -27,21 +27,26 @@ class AsyncEmailClient:
             message['Subject'] = subject
             message['From'] = self.sender_email
             message['To'] = ', '.join(recipients)
+            message['X-Priority'] = '2'
             
-            html_part = MIMEText(html_body, 'html')
+            html_part = MIMEText(html_body, 'html', 'utf-8')
             message.attach(html_part)
             
             # Crear contexto SSL
             context = ssl.create_default_context()
             
-            # Enviar email
-            async with aiosmtpd.SMTP(self.smtp_server, self.smtp_port) as server:
-                await server.starttls(context=context)
-                await server.login(self.sender_email, self.sender_password)
-                await server.send_message(message)
+            # Enviar
+            await aiosmtpd.send(
+                message,
+                hostname=self.smtp_server,
+                port=self.smtp_port,
+                start_tls=True,
+                username=self.sender_email,
+                password=self.sender_password
+            )
                 
         except Exception as e:
-            print(f"Error sending email: {e}")
+            print(f"Error enviando email: {e}")
         
     async def send_priority_email(self, subject: str, html_body: str, recipients: List[str]):
         """Enviar email prioritario para errores críticos"""

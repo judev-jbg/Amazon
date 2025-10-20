@@ -1,5 +1,6 @@
 
 import asyncio
+import sys
 import time
 import pandas as pd
 import logging
@@ -7,6 +8,7 @@ from datetime import datetime, timedelta
 from sp_api.api import Orders, Sales
 from sp_api.base import SellingApiException, Granularity
 from sp_api.util import throttle_retry, load_all_pages
+
 import config.setting as st
 
 credentials = dict(
@@ -30,6 +32,8 @@ def getOrder(orderId: str, tagSubjectMail: str = ''):
     Returns:
         [DataFrame, success_flag]: DataFrame con datos de la orden y flag de éxito
     """
+
+    logger = logging.getLogger(f"{__name__}.getOrder")
     try:
         print("#" * 5, " ¡Proceso de recolección de orden específica! ", "#" * 5)   
         print("#" * 5, f" -Recuperando datos de la orden {orderId}")
@@ -62,26 +66,36 @@ def getOrder(orderId: str, tagSubjectMail: str = ''):
         # Llamada a la API
         order_api = Orders(credentials=credentials).get_order(orderId)
         order = order_api.payload
+
+        logger.error(f"Orden: {order}")
         
         # Procesar datos de la orden
-        order_data['purchaseDate'].append(order.get("PurchaseDate"))
+        purchas_date = order.get("purchaseDate")
+        order_data['purchaseDate'].append(purchas_date.replace('T', ' ').replace('Z', '') if purchas_date else None)
         
         # Convertir fecha a timezone local
         str_time = order.get("PurchaseDate")
         str_time = str_time.replace('T', ' ').replace('Z', '')
         order_data['purchaseDateEs'].append(
-            datetime.strptime(str_time, '%Y-%m-%d %H:%M:%S') + timedelta(hours=st.difHoursUtc)
+            datetime.strptime(str_time, '%Y-%m-%d %H:%M:%S') + timedelta(hours=st.difHoursUtc) if purchas_date else None
         )
         
         # Datos básicos de la orden
         order_data['salesChannel'].append(order.get("SalesChannel"))
         order_data['amazonOrderId'].append(order.get("AmazonOrderId"))
         order_data['buyerEmail'].append(order.get("BuyerInfo", {}).get("BuyerEmail"))
-        order_data['earliestShipDate'].append(order.get("EarliestShipDate"))
-        order_data['latestShipDate'].append(order.get("LatestShipDate"))
-        order_data['earliestDeliveryDate'].append(order.get("EarliestDeliveryDate"))
-        order_data['latestDeliveryDate'].append(order.get("LatestDeliveryDate"))
-        order_data['lastUpdateDate'].append(order.get("LastUpdateDate", "").replace('T', ' ').replace('Z', ''))
+
+        earliest_shipDate = order.get("earliestShipDate", "")
+        order_data['earliestShipDate'].append(earliest_shipDate.replace('T', ' ').replace('Z', '') if earliest_shipDate else None)
+        latest_shipDate = order.get("latestShipDate", "")
+        order_data['latestShipDate'].append(latest_shipDate.replace('T', ' ').replace('Z', '') if latest_shipDate else None)
+        earliest_deliveryDate = order.get("earliestDeliveryDate", "")
+        order_data['earliestDeliveryDate'].append(earliest_deliveryDate.replace('T', ' ').replace('Z', '') if earliest_deliveryDate else None)
+        latest_deliveryDate = order.get("latestDeliveryDate", "")
+        order_data['latestDeliveryDate'].append(latest_deliveryDate.replace('T', ' ').replace('Z', '') if latest_deliveryDate else None)
+        last_updateDate = order.get("lastUpdateDate", "")
+        order_data['lastUpdateDate'].append(last_updateDate.replace('T', ' ').replace('Z', '') if last_updateDate else None)
+
         order_data['isBusinessOrder'].append(order.get("IsBusinessOrder"))
         order_data['marketplaceId'].append(order.get("MarketplaceId"))
         order_data['numberOfItemsShipped'].append(order.get("NumberOfItemsShipped"))
@@ -126,36 +140,16 @@ def getOrder(orderId: str, tagSubjectMail: str = ''):
             return [pd.DataFrame(), 1]
 
     except SellingApiException as ex:
-        error_context = {
-            'function': 'getOrder',
-            'orderId': orderId,
-            'error_type': 'SellingApiException',
-            'api_code': getattr(ex, 'code', None)
-        }
-        
+        logger.error(f"Error in API getOrders: {ex}")
         # Si es rate limit, retornar código de error para retry
         if hasattr(ex, 'code') and ex.code == 429:
             print("#" * 5, f" -Rate limit alcanzado para orden {orderId}")
             return [pd.DataFrame([ex.code], columns=["code"]), 0]
         
-        # Para otros errores de API, usar el sistema de manejo de errores
-        from infrastructure.error_handling import EnhancedErrorHandler
-        error_handler = EnhancedErrorHandler()
-        asyncio.create_task(error_handler.handle_error(ex, error_context))
-        
         return [pd.DataFrame(), 0]
 
-    except Exception as ex:
-        error_context = {
-            'function': 'getOrder',
-            'orderId': orderId,
-            'tagSubjectMail': tagSubjectMail
-        }
-        
-        # Usar el sistema de manejo de errores
-        from infrastructure.error_handling import EnhancedErrorHandler
-        error_handler = EnhancedErrorHandler()
-        asyncio.create_task(error_handler.handle_error(ex, error_context))
+    except Exception as e:
+        logger.error(f"Error in getOrders: {e}")
         
         return [pd.DataFrame(), 0]
 
@@ -177,6 +171,10 @@ def getOrders(dateInit: str, dateEnd: str, market: list, context: dict = None) -
     
     try:
         logger.debug(f"Extracting orders from {dateInit} to {dateEnd} for markets: {market}")
+
+        print("#" * 5, "-" * 70)
+        print("#" * 5, " ¡Proceso de recolección de ordenes! ", "#" * 5)   
+        print("#" * 5, f" -Recuperando ordenes")
         
         # Inicializar listas para datos
         purchaseDateAMZ = []
@@ -209,9 +207,15 @@ def getOrders(dateInit: str, dateEnd: str, market: list, context: dict = None) -
         
         # Extraer órdenes con paginación automática
         for page in load_all_orders(CreatedAfter=dateInit, CreatedBefore=dateEnd, MarketplaceIds=market):
+            orders = getattr(page, 'payload', {}).get("Orders", [])
+            if not orders:
+                print("Pagina vacia")
+                continue 
+            print("#" * 5, f" -{len(orders)} ordenes")
             for order in page.payload.get("Orders", []):
                 # Transformar datos
-                purchaseDateAMZ.append(order.get("PurchaseDate"))
+                purchase_date_AMZ = order.get("PurchaseDate")
+                purchaseDateAMZ.append(order.get("PurchaseDate").replace('T', ' ').replace('Z', '') if purchase_date_AMZ else None)
                 
                 # Convertir fecha a timezone local
                 str_time = order.get("PurchaseDate", "")
@@ -226,15 +230,16 @@ def getOrders(dateInit: str, dateEnd: str, market: list, context: dict = None) -
                 salesChannel.append(order.get("SalesChannel"))
                 amazonOrderId.append(order.get("AmazonOrderId"))
                 buyerEmail.append(order.get("BuyerInfo", {}).get("BuyerEmail"))
-                earliestShipDate.append(order.get("EarliestShipDate"))
-                latestShipDate.append(order.get("LatestShipDate"))
-                earliestDeliveryDate.append(order.get("EarliestDeliveryDate"))
-                latestDeliveryDate.append(order.get("LatestDeliveryDate"))
-                
-                # Limpiar lastUpdateDate
+                earliest_ship_date = order.get("EarliestShipDate")
+                earliestShipDate.append(order.get("EarliestShipDate").replace('T', ' ').replace('Z', '') if earliest_ship_date else None)
+                latest_ship_date = order.get("LatestShipDate")
+                latestShipDate.append(order.get("LatestShipDate").replace('T', ' ').replace('Z', '') if latest_ship_date else None)
+                earliest_delivery_date = order.get("EarliestDeliveryDate")
+                earliestDeliveryDate.append(order.get("EarliestDeliveryDate").replace('T', ' ').replace('Z', '') if earliest_delivery_date else None)
+                latest_delivery_date = order.get("LatestDeliveryDate")
+                latestDeliveryDate.append(order.get("LatestDeliveryDate").replace('T', ' ').replace('Z', '') if latest_delivery_date else None)
                 last_update = order.get("LastUpdateDate", "")
                 lastUpdateDate.append(last_update.replace('T', ' ').replace('Z', '') if last_update else None)
-                
                 isBusinessOrder.append(order.get("IsBusinessOrder", False))
                 marketplaceId.append(order.get("MarketplaceId"))
                 numberOfItemsShipped.append(order.get("NumberOfItemsShipped", 0))
@@ -296,41 +301,33 @@ def getOrders(dateInit: str, dateEnd: str, market: list, context: dict = None) -
         df_orders['loadDateTime'] = datetime.now()
         
         logger.info(f"Successfully extracted {len(df_orders)} orders")
-        return df_orders, True
-        
-    except SellingApiException as e:
+
+        if len(df_orders.index) > 0:
+            print("#" * 5, " -El proceso de recoleccion de ordenes finalizo con exito")
+            print("#" * 5, "-" * 70)
+            return [df_orders, 1]
+        else:
+            print("#" * 5, " -El proceso de recoleccion de ordenes finalizo pero no obtuvo resultados")
+            print("#" * 5, "-" * 70)
+            return [pd.DataFrame(), 1]
+       
+    except SellingApiException as ex:
         # Dejar que la infraestructura de errores maneje esto
-        logger.error(f"Amazon API error in getOrders: {e}")
-        error_context = {
-            'function': 'getOrders',
-            'error_type': 'SellingApiException',
-            'api_code': getattr(e, 'code', None)
-        }
+        logger.error(f"Amazon API error in getOrders: {ex}")
         
         # Si es rate limit, retornar código de error para retry
-        if hasattr(e, 'code') and e.code == 429:
+        if hasattr(ex, 'code') and ex.code == 429:
             print("#" * 5, f" -Rate limit alcanzado para ordenes")
-            return [pd.DataFrame([e.code], columns=["code"]), 0]
-        
-        # Para otros errores de API, usar el sistema de manejo de errores
-        from infrastructure.error_handling import EnhancedErrorHandler
-        error_handler = EnhancedErrorHandler()
-        asyncio.create_task(error_handler.handle_error(e, error_context))
+            return [pd.DataFrame([ex.code], columns=["code"]), 0]
+
         
         return [pd.DataFrame(), 0]
 
         
     except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
         # Dejar que la infraestructura de errores maneje esto
-        logger.error(f"Unexpected error in getOrders: {e}")
-        error_context = {
-            'function': 'getOrders'
-        }
-        
-        # Usar el sistema de manejo de errores
-        from infrastructure.error_handling import EnhancedErrorHandler
-        error_handler = EnhancedErrorHandler()
-        asyncio.create_task(error_handler.handle_error(e, error_context))
+        logger.error(f"Error en getOrders: {e} \nLinea {exc_tb.tb_lineno}")
         
         return [pd.DataFrame(), 0]
 
@@ -345,8 +342,10 @@ def getOrderItems(orderId: str, tagSubjectMail: str = ''):
     Returns:
         [DataFrame, success_flag]: DataFrame con elementos de la orden y flag de éxito
     """
+    logger = logging.getLogger(f"{__name__}.getOrderItems")
     try:
-        print("#" * 5, " ¡Proceso de recolección de elementos de orden! ", "#" * 5)   
+        print("#" * 5, "-" * 70)
+        print("#" * 5, " ¡Proceso de recolección de elementos de ordenes! ", "#" * 5)   
         print("#" * 5, f" -Recuperando elementos de la orden {orderId}")
 
         # Estructura para almacenar datos
@@ -392,7 +391,7 @@ def getOrderItems(orderId: str, tagSubjectMail: str = ''):
             buyer_cancel = item.get("BuyerRequestedCancel")
             if buyer_cancel:
                 order_items_data['reasonCancel'].append(buyer_cancel.get("BuyerCancelReason", "S/D"))
-                order_items_data['isRequestedCancel'].append(buyer_cancel.get("IsBuyerRequestedCancel", 0))
+                order_items_data['isRequestedCancel'].append(int(buyer_cancel.get("IsBuyerRequestedCancel").replace('false','0').replace('true','1')))
             else:
                 order_items_data['reasonCancel'].append("S/D")
                 order_items_data['isRequestedCancel'].append(0)
@@ -421,7 +420,7 @@ def getOrderItems(orderId: str, tagSubjectMail: str = ''):
         df_order_items['loadDateTime'] = datetime.now()
 
         if len(df_order_items.index) > 0:
-            print("#" * 5, " -El proceso de recolección de elementos finalizó con éxito")
+            print("#" * 5, " -El proceso de recolección de elementos de ordenes finalizó con éxito")
             print("#" * 5, "-" * 70)
             return [df_order_items, 1]
         else:
@@ -430,36 +429,19 @@ def getOrderItems(orderId: str, tagSubjectMail: str = ''):
             return [pd.DataFrame(), 1]
 
     except SellingApiException as ex:
-        error_context = {
-            'function': 'getOrderItems',
-            'orderId': orderId,
-            'error_type': 'SellingApiException',
-            'api_code': getattr(ex, 'code', None)
-        }
+        logger.error(f"Amazon API error in getOrderItems: {ex}")
         
         # Si es rate limit, retornar código de error para retry
         if hasattr(ex, 'code') and ex.code == 429:
-            print("#" * 5, f" -Rate limit alcanzado para elementos de orden {orderId}")
+            print("#" * 5, f" -Rate limit alcanzado para elementos de ordenes {orderId}")
             return [pd.DataFrame([ex.code], columns=["code"]), 0]
-        
-        # Para otros errores de API, usar el sistema de manejo de errores
-        from infrastructure.error_handling import EnhancedErrorHandler
-        error_handler = EnhancedErrorHandler()
-        asyncio.create_task(error_handler.handle_error(ex, error_context))
+    
         
         return [pd.DataFrame(), 0]
 
     except Exception as ex:
-        error_context = {
-            'function': 'getOrderItems',
-            'orderId': orderId,
-            'tagSubjectMail': tagSubjectMail
-        }
-        
-        # Usar el sistema de manejo de errores
-        from infrastructure.error_handling import EnhancedErrorHandler
-        error_handler = EnhancedErrorHandler()
-        asyncio.create_task(error_handler.handle_error(ex, error_context))
+        logger.error(f"Amazon error in getOrderItems: {ex}")
+
         
         return [pd.DataFrame(), 0]
 
@@ -477,9 +459,11 @@ def getSales(asinp: str, skup: str, market: list, intervalp: tuple, tagSubjectMa
     Returns:
         [DataFrame, success_flag]: DataFrame con métricas de ventas y flag de éxito
     """
+    logger = logging.getLogger(f"{__name__}.getSales")
     mkt = getNameMarket(market[0])
     
     try:
+        print("#" * 5, "-" * 70)
         print("#" * 5, " ¡Proceso de recolección de métricas de ventas! ", "#" * 5)   
         print("#" * 5, f" -Recuperando métricas para ASIN {asinp} del mercado {mkt[0]}")
 
@@ -561,41 +545,19 @@ def getSales(asinp: str, skup: str, market: list, intervalp: tuple, tagSubjectMa
             return [pd.DataFrame(), 1]
 
     except SellingApiException as ex:
-        error_context = {
-            'function': 'getSales',
-            'asinp': asinp,
-            'skup': skup,
-            'market': market[0] if market else None,
-            'error_type': 'SellingApiException',
-            'api_code': getattr(ex, 'code', None)
-        }
+        logger.error(f"Amazon API error in getSales: {ex}")
         
         # Si es rate limit, retornar código de error para retry
         if hasattr(ex, 'code') and ex.code == 429:
             print("#" * 5, f" -Rate limit alcanzado para métricas de ASIN {asinp} en mercado {mkt[0]}")
             return [pd.DataFrame([ex.code], columns=["code"]), 0]
-        
-        # Para otros errores de API, usar el sistema de manejo de errores
-        from infrastructure.error_handling import EnhancedErrorHandler
-        error_handler = EnhancedErrorHandler()
-        asyncio.create_task(error_handler.handle_error(ex, error_context))
+    
         
         return [pd.DataFrame(), 0]
 
     except Exception as ex:
-        error_context = {
-            'function': 'getSales',
-            'asinp': asinp,
-            'skup': skup,
-            'market': market[0] if market else None,
-            'tagSubjectMail': tagSubjectMail
-        }
-        
-        # Usar el sistema de manejo de errores
-        from infrastructure.error_handling import EnhancedErrorHandler
-        error_handler = EnhancedErrorHandler()
-        asyncio.create_task(error_handler.handle_error(ex, error_context))
-        
+        logger.error(f"Amazon error in getSales: {ex}")
+                
         return [pd.DataFrame(), 0]
 
 def getNameMarket(idMarket: str):

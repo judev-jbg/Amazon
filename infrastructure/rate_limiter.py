@@ -16,6 +16,7 @@ from enum import Enum
 
 class APIEndpoint(Enum):
     """Endpoints de Amazon SP-API con sus límites específicos"""
+    ORDER = "order"
     ORDERS = "orders"
     ORDER_ITEMS = "order_items"
     SALES = "sales"
@@ -34,9 +35,10 @@ class RateLimiter:
     
     # Límites específicos por endpoint según documentación de Amazon
     ENDPOINT_LIMITS = {
-        APIEndpoint.ORDERS: RateLimit(max_requests=6, window_seconds=60, burst_limit=20),
-        APIEndpoint.ORDER_ITEMS: RateLimit(max_requests=300, window_seconds=60, burst_limit=100),
-        APIEndpoint.SALES: RateLimit(max_requests=45, window_seconds=60, burst_limit=15),
+        APIEndpoint.ORDER: RateLimit(max_requests=30, window_seconds=60, burst_limit=30),
+        APIEndpoint.ORDERS: RateLimit(max_requests=1, window_seconds=60, burst_limit=20),
+        APIEndpoint.ORDER_ITEMS: RateLimit(max_requests=30, window_seconds=60, burst_limit=30),
+        APIEndpoint.SALES: RateLimit(max_requests=30, window_seconds=60, burst_limit=15),
         APIEndpoint.OFFERS: RateLimit(max_requests=5, window_seconds=60, burst_limit=10),
         APIEndpoint.REPORTS: RateLimit(max_requests=15, window_seconds=60, burst_limit=10),
     }

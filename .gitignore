@@ -1,6 +1,8 @@
 source/*
 logs/*
 config/*
+.venv*
+source/
 
 
 # Archivos de Python
@@ -24,12 +26,13 @@ ENV/
 env.bak/
 venv.bak/
 
+
 # Archivos de configuración del sistema
 .DS_Store
 Thumbs.db
 
 # Archivos de log
-*.log
+logs/*
 
 # Archivos de pruebas de cobertura
 .coverage
@@ -43,3 +46,5 @@ Thumbs.db
 *.tmp
 
 .env
+
+*.ps1
