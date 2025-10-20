@@ -1,22 +1,36 @@
+"""
+DEPRECATED: Este módulo está deprecado.
+Usar en su lugar:
+- core/transformers/amazon_order_transformer.py
+- core/transformers/amazon_item_transformer.py
+- core/transformers/amazon_sales_transformer.py
+- core/api/amazon_sp_api_wrapper.py
 
-import asyncio
-import sys
-import time
-import pandas as pd
-import logging
-from datetime import datetime, timedelta
-from sp_api.api import Orders, Sales
-from sp_api.base import SellingApiException, Granularity
-from sp_api.util import throttle_retry, load_all_pages
-
+Este archivo se mantendrá temporalmente para compatibilidad.
+"""
 import config.setting as st
+from sp_api.util import throttle_retry, load_all_pages
+from sp_api.base import SellingApiException, Granularity
+from sp_api.api import Orders, Sales
+from datetime import datetime, timedelta
+import logging
+import pandas as pd
+import time
+import sys
+import warnings
+warnings.warn(
+    "libs.transform is deprecated. Use core.transformers and core.api instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 
 credentials = dict(
     refresh_token=st.setting_cred_api_amz['refresh_token'],
-    lwa_app_id=st.setting_cred_api_amz['lwa_app_id'],  
+    lwa_app_id=st.setting_cred_api_amz['lwa_app_id'],
     lwa_client_secret=st.setting_cred_api_amz['lwa_client_secret'],
     aws_secret_key=st.setting_cred_api_amz['aws_secret_key'],
-    aws_access_key=st.setting_cred_api_amz['aws_access_key'], 
+    aws_access_key=st.setting_cred_api_amz['aws_access_key'],
     role_arn=st.setting_cred_api_amz['role_arn']
 )
 
@@ -24,18 +38,18 @@ credentials = dict(
 def getOrder(orderId: str, tagSubjectMail: str = ''):
     """
     Recupera datos de una orden específica desde Amazon SP-API
-    
+
     Args:
         orderId: ID de la orden de Amazon
         tagSubjectMail: Tag para identificación en logs
-    
+
     Returns:
         [DataFrame, success_flag]: DataFrame con datos de la orden y flag de éxito
     """
 
     logger = logging.getLogger(f"{__name__}.getOrder")
     try:
-        print("#" * 5, " ¡Proceso de recolección de orden específica! ", "#" * 5)   
+        print("#" * 5, " ¡Proceso de recolección de orden específica! ", "#" * 5)
         print("#" * 5, f" -Recuperando datos de la orden {orderId}")
 
         # Estructura para almacenar datos
@@ -68,56 +82,70 @@ def getOrder(orderId: str, tagSubjectMail: str = ''):
         order = order_api.payload
 
         logger.error(f"Orden: {order}")
-        
+
         # Procesar datos de la orden
         purchas_date = order.get("purchaseDate")
-        order_data['purchaseDate'].append(purchas_date.replace('T', ' ').replace('Z', '') if purchas_date else None)
-        
+        order_data['purchaseDate'].append(purchas_date.replace(
+            'T', ' ').replace('Z', '') if purchas_date else None)
+
         # Convertir fecha a timezone local
         str_time = order.get("PurchaseDate")
         str_time = str_time.replace('T', ' ').replace('Z', '')
         order_data['purchaseDateEs'].append(
-            datetime.strptime(str_time, '%Y-%m-%d %H:%M:%S') + timedelta(hours=st.difHoursUtc) if purchas_date else None
+            datetime.strptime(str_time, '%Y-%m-%d %H:%M:%S') +
+            timedelta(hours=st.difHoursUtc) if purchas_date else None
         )
-        
+
         # Datos básicos de la orden
         order_data['salesChannel'].append(order.get("SalesChannel"))
         order_data['amazonOrderId'].append(order.get("AmazonOrderId"))
-        order_data['buyerEmail'].append(order.get("BuyerInfo", {}).get("BuyerEmail"))
+        order_data['buyerEmail'].append(
+            order.get("BuyerInfo", {}).get("BuyerEmail"))
 
         earliest_shipDate = order.get("earliestShipDate", "")
-        order_data['earliestShipDate'].append(earliest_shipDate.replace('T', ' ').replace('Z', '') if earliest_shipDate else None)
+        order_data['earliestShipDate'].append(earliest_shipDate.replace(
+            'T', ' ').replace('Z', '') if earliest_shipDate else None)
         latest_shipDate = order.get("latestShipDate", "")
-        order_data['latestShipDate'].append(latest_shipDate.replace('T', ' ').replace('Z', '') if latest_shipDate else None)
+        order_data['latestShipDate'].append(latest_shipDate.replace(
+            'T', ' ').replace('Z', '') if latest_shipDate else None)
         earliest_deliveryDate = order.get("earliestDeliveryDate", "")
-        order_data['earliestDeliveryDate'].append(earliest_deliveryDate.replace('T', ' ').replace('Z', '') if earliest_deliveryDate else None)
+        order_data['earliestDeliveryDate'].append(earliest_deliveryDate.replace(
+            'T', ' ').replace('Z', '') if earliest_deliveryDate else None)
         latest_deliveryDate = order.get("latestDeliveryDate", "")
-        order_data['latestDeliveryDate'].append(latest_deliveryDate.replace('T', ' ').replace('Z', '') if latest_deliveryDate else None)
+        order_data['latestDeliveryDate'].append(latest_deliveryDate.replace(
+            'T', ' ').replace('Z', '') if latest_deliveryDate else None)
         last_updateDate = order.get("lastUpdateDate", "")
-        order_data['lastUpdateDate'].append(last_updateDate.replace('T', ' ').replace('Z', '') if last_updateDate else None)
+        order_data['lastUpdateDate'].append(last_updateDate.replace(
+            'T', ' ').replace('Z', '') if last_updateDate else None)
 
         order_data['isBusinessOrder'].append(order.get("IsBusinessOrder"))
         order_data['marketplaceId'].append(order.get("MarketplaceId"))
-        order_data['numberOfItemsShipped'].append(order.get("NumberOfItemsShipped"))
-        order_data['numberOfItemsUnshipped'].append(order.get("NumberOfItemsUnshipped"))
+        order_data['numberOfItemsShipped'].append(
+            order.get("NumberOfItemsShipped"))
+        order_data['numberOfItemsUnshipped'].append(
+            order.get("NumberOfItemsUnshipped"))
         order_data['orderStatus'].append(order.get("OrderStatus"))
-        
+
         # Información financiera
         order_total = order.get("OrderTotal")
         if order_total:
-            order_data['totalOrderCurrencyCode'].append(order_total.get("CurrencyCode", "S/D"))
+            order_data['totalOrderCurrencyCode'].append(
+                order_total.get("CurrencyCode", "S/D"))
             order_data['totalOrderAmount'].append(order_total.get("Amount", 0))
         else:
             order_data['totalOrderCurrencyCode'].append("S/D")
             order_data['totalOrderAmount'].append(0)
-        
+
         # Dirección de envío
         shipping_address = order.get("ShippingAddress")
         if shipping_address:
             order_data['city'].append(shipping_address.get("City", "S/D"))
-            order_data['countryCode'].append(shipping_address.get("CountryCode", "S/D"))
-            order_data['postalCode'].append(shipping_address.get("PostalCode", "S/D"))
-            order_data['stateOrRegion'].append(shipping_address.get("StateOrRegion", "S/D"))
+            order_data['countryCode'].append(
+                shipping_address.get("CountryCode", "S/D"))
+            order_data['postalCode'].append(
+                shipping_address.get("PostalCode", "S/D"))
+            order_data['stateOrRegion'].append(
+                shipping_address.get("StateOrRegion", "S/D"))
         else:
             order_data['city'].append("S/D")
             order_data['countryCode'].append("S/D")
@@ -126,16 +154,17 @@ def getOrder(orderId: str, tagSubjectMail: str = ''):
 
         # Crear DataFrame
         df_order = pd.DataFrame(order_data)
-        
+
         # Añadir columnas con sufijo para diferenciación
         df_order.columns = [col + '_o' for col in df_order.columns]
-        
+
         if len(df_order.index) > 0:
             print("#" * 5, " -El proceso de recolección de orden finalizó con éxito")
             print("#" * 5, "-" * 70)
             return [df_order, 1]
         else:
-            print("#" * 5, " -El proceso de recolección de orden finalizó pero no obtuvo resultados")
+            print(
+                "#" * 5, " -El proceso de recolección de orden finalizó pero no obtuvo resultados")
             print("#" * 5, "-" * 70)
             return [pd.DataFrame(), 1]
 
@@ -145,37 +174,39 @@ def getOrder(orderId: str, tagSubjectMail: str = ''):
         if hasattr(ex, 'code') and ex.code == 429:
             print("#" * 5, f" -Rate limit alcanzado para orden {orderId}")
             return [pd.DataFrame([ex.code], columns=["code"]), 0]
-        
+
         return [pd.DataFrame(), 0]
 
     except Exception as e:
         logger.error(f"Error in getOrders: {e}")
-        
+
         return [pd.DataFrame(), 0]
+
 
 def getOrders(dateInit: str, dateEnd: str, market: list, context: dict = None) -> tuple:
     """
     Extrae órdenes de Amazon SP-API
-    
+
     Args:
         dateInit: Fecha inicio en formato ISO
         dateEnd: Fecha fin en formato ISO  
         market: Lista de mercados
         context: Contexto para manejo de errores
-        
+
     Returns:
         tuple: (DataFrame con órdenes, success_flag)
-    
+
     """
     logger = logging.getLogger(f"{__name__}.getOrders")
-    
+
     try:
-        logger.debug(f"Extracting orders from {dateInit} to {dateEnd} for markets: {market}")
+        logger.debug(
+            f"Extracting orders from {dateInit} to {dateEnd} for markets: {market}")
 
         print("#" * 5, "-" * 70)
-        print("#" * 5, " ¡Proceso de recolección de ordenes! ", "#" * 5)   
+        print("#" * 5, " ¡Proceso de recolección de ordenes! ", "#" * 5)
         print("#" * 5, f" -Recuperando ordenes")
-        
+
         # Inicializar listas para datos
         purchaseDateAMZ = []
         purchaseDateEs = []
@@ -204,48 +235,57 @@ def getOrders(dateInit: str, dateEnd: str, market: list, context: dict = None) -
         def load_all_orders(**kwargs):
             """Función interna para paginación automática"""
             return Orders(credentials=credentials).get_orders(**kwargs)
-        
+
         # Extraer órdenes con paginación automática
         for page in load_all_orders(CreatedAfter=dateInit, CreatedBefore=dateEnd, MarketplaceIds=market):
             orders = getattr(page, 'payload', {}).get("Orders", [])
             if not orders:
                 print("Pagina vacia")
-                continue 
+                continue
             print("#" * 5, f" -{len(orders)} ordenes")
             for order in page.payload.get("Orders", []):
                 # Transformar datos
                 purchase_date_AMZ = order.get("PurchaseDate")
-                purchaseDateAMZ.append(order.get("PurchaseDate").replace('T', ' ').replace('Z', '') if purchase_date_AMZ else None)
-                
+                purchaseDateAMZ.append(order.get("PurchaseDate").replace(
+                    'T', ' ').replace('Z', '') if purchase_date_AMZ else None)
+
                 # Convertir fecha a timezone local
                 str_time = order.get("PurchaseDate", "")
                 str_time = str_time.replace('T', ' ').replace('Z', '')
                 if str_time:
-                    local_date = datetime.strptime(str_time, '%Y-%m-%d %H:%M:%S') + timedelta(hours=st.difHoursUtc)
+                    local_date = datetime.strptime(
+                        str_time, '%Y-%m-%d %H:%M:%S') + timedelta(hours=st.difHoursUtc)
                     purchaseDateEs.append(local_date)
                 else:
                     purchaseDateEs.append(None)
-                
+
                 # Extraer campos básicos
                 salesChannel.append(order.get("SalesChannel"))
                 amazonOrderId.append(order.get("AmazonOrderId"))
                 buyerEmail.append(order.get("BuyerInfo", {}).get("BuyerEmail"))
                 earliest_ship_date = order.get("EarliestShipDate")
-                earliestShipDate.append(order.get("EarliestShipDate").replace('T', ' ').replace('Z', '') if earliest_ship_date else None)
+                earliestShipDate.append(order.get("EarliestShipDate").replace(
+                    'T', ' ').replace('Z', '') if earliest_ship_date else None)
                 latest_ship_date = order.get("LatestShipDate")
-                latestShipDate.append(order.get("LatestShipDate").replace('T', ' ').replace('Z', '') if latest_ship_date else None)
+                latestShipDate.append(order.get("LatestShipDate").replace(
+                    'T', ' ').replace('Z', '') if latest_ship_date else None)
                 earliest_delivery_date = order.get("EarliestDeliveryDate")
-                earliestDeliveryDate.append(order.get("EarliestDeliveryDate").replace('T', ' ').replace('Z', '') if earliest_delivery_date else None)
+                earliestDeliveryDate.append(order.get("EarliestDeliveryDate").replace(
+                    'T', ' ').replace('Z', '') if earliest_delivery_date else None)
                 latest_delivery_date = order.get("LatestDeliveryDate")
-                latestDeliveryDate.append(order.get("LatestDeliveryDate").replace('T', ' ').replace('Z', '') if latest_delivery_date else None)
+                latestDeliveryDate.append(order.get("LatestDeliveryDate").replace(
+                    'T', ' ').replace('Z', '') if latest_delivery_date else None)
                 last_update = order.get("LastUpdateDate", "")
-                lastUpdateDate.append(last_update.replace('T', ' ').replace('Z', '') if last_update else None)
+                lastUpdateDate.append(last_update.replace(
+                    'T', ' ').replace('Z', '') if last_update else None)
                 isBusinessOrder.append(order.get("IsBusinessOrder", False))
                 marketplaceId.append(order.get("MarketplaceId"))
-                numberOfItemsShipped.append(order.get("NumberOfItemsShipped", 0))
-                numberOfItemsUnshipped.append(order.get("NumberOfItemsUnshipped", 0))
+                numberOfItemsShipped.append(
+                    order.get("NumberOfItemsShipped", 0))
+                numberOfItemsUnshipped.append(
+                    order.get("NumberOfItemsUnshipped", 0))
                 orderStatus.append(order.get("OrderStatus"))
-                
+
                 # Manejar OrderTotal (puede ser None)
                 order_total = order.get("OrderTotal")
                 if order_total:
@@ -254,20 +294,21 @@ def getOrders(dateInit: str, dateEnd: str, market: list, context: dict = None) -
                 else:
                     currencyCode.append("S/D")
                     amount.append(0)
-                
+
                 # Manejar ShippingAddress (puede ser None)
                 shipping_addr = order.get("ShippingAddress")
                 if shipping_addr:
                     city.append(shipping_addr.get("City", "S/D"))
                     countryCode.append(shipping_addr.get("CountryCode", "S/D"))
                     postalCode.append(shipping_addr.get("PostalCode", "S/D"))
-                    stateOrRegion.append(shipping_addr.get("StateOrRegion", "S/D"))
+                    stateOrRegion.append(
+                        shipping_addr.get("StateOrRegion", "S/D"))
                 else:
                     city.append("S/D")
                     countryCode.append("S/D")
                     postalCode.append("S/D")
                     stateOrRegion.append("S/D")
-            
+
             # Small delay entre páginas para ser gentil con la API
             time.sleep(1)
 
@@ -295,11 +336,11 @@ def getOrders(dateInit: str, dateEnd: str, market: list, context: dict = None) -
             'postalCode': postalCode,
             'stateOrRegion': stateOrRegion
         })
-        
+
         # Añadir metadatos
         df_orders['loadDate'] = datetime.now().date()
         df_orders['loadDateTime'] = datetime.now()
-        
+
         logger.info(f"Successfully extracted {len(df_orders)} orders")
 
         if len(df_orders.index) > 0:
@@ -307,45 +348,45 @@ def getOrders(dateInit: str, dateEnd: str, market: list, context: dict = None) -
             print("#" * 5, "-" * 70)
             return [df_orders, 1]
         else:
-            print("#" * 5, " -El proceso de recoleccion de ordenes finalizo pero no obtuvo resultados")
+            print(
+                "#" * 5, " -El proceso de recoleccion de ordenes finalizo pero no obtuvo resultados")
             print("#" * 5, "-" * 70)
             return [pd.DataFrame(), 1]
-       
+
     except SellingApiException as ex:
         # Dejar que la infraestructura de errores maneje esto
         logger.error(f"Amazon API error in getOrders: {ex}")
-        
+
         # Si es rate limit, retornar código de error para retry
         if hasattr(ex, 'code') and ex.code == 429:
             print("#" * 5, f" -Rate limit alcanzado para ordenes")
             return [pd.DataFrame([ex.code], columns=["code"]), 0]
 
-        
         return [pd.DataFrame(), 0]
 
-        
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         # Dejar que la infraestructura de errores maneje esto
         logger.error(f"Error en getOrders: {e} \nLinea {exc_tb.tb_lineno}")
-        
+
         return [pd.DataFrame(), 0]
+
 
 def getOrderItems(orderId: str, tagSubjectMail: str = ''):
     """
     Recupera elementos de una orden específica desde Amazon SP-API
-    
+
     Args:
         orderId: ID de la orden de Amazon
         tagSubjectMail: Tag para identificación en logs
-    
+
     Returns:
         [DataFrame, success_flag]: DataFrame con elementos de la orden y flag de éxito
     """
     logger = logging.getLogger(f"{__name__}.getOrderItems")
     try:
         print("#" * 5, "-" * 70)
-        print("#" * 5, " ¡Proceso de recolección de elementos de ordenes! ", "#" * 5)   
+        print("#" * 5, " ¡Proceso de recolección de elementos de ordenes! ", "#" * 5)
         print("#" * 5, f" -Recuperando elementos de la orden {orderId}")
 
         # Estructura para almacenar datos
@@ -378,38 +419,45 @@ def getOrderItems(orderId: str, tagSubjectMail: str = ''):
             order_items_data['sku'].append(item.get("SellerSKU"))
             order_items_data['title'].append(item.get("Title"))
             order_items_data['conditionItem'].append(item.get("ConditionId"))
-            
+
             # Información del producto
             product_info = item.get("ProductInfo", {})
-            order_items_data['nItems'].append(product_info.get("NumberOfItems"))
-            
+            order_items_data['nItems'].append(
+                product_info.get("NumberOfItems"))
+
             # Cantidades
             order_items_data['qOrdered'].append(item.get("QuantityOrdered"))
             order_items_data['qShipped'].append(item.get("QuantityShipped"))
-            
+
             # Información de cancelación
             buyer_cancel = item.get("BuyerRequestedCancel")
             if buyer_cancel:
-                order_items_data['reasonCancel'].append(buyer_cancel.get("BuyerCancelReason", "S/D"))
-                order_items_data['isRequestedCancel'].append(int(buyer_cancel.get("IsBuyerRequestedCancel").replace('false','0').replace('true','1')))
+                order_items_data['reasonCancel'].append(
+                    buyer_cancel.get("BuyerCancelReason", "S/D"))
+                order_items_data['isRequestedCancel'].append(int(buyer_cancel.get(
+                    "IsBuyerRequestedCancel").replace('false', '0').replace('true', '1')))
             else:
                 order_items_data['reasonCancel'].append("S/D")
                 order_items_data['isRequestedCancel'].append(0)
-            
+
             # Información de precios
             item_price = item.get("ItemPrice")
             if item_price:
-                order_items_data['itemPriceCurrencyCode'].append(item_price.get("CurrencyCode", "S/D"))
-                order_items_data['itemPriceCurrencyAmount'].append(item_price.get("Amount", 0))
+                order_items_data['itemPriceCurrencyCode'].append(
+                    item_price.get("CurrencyCode", "S/D"))
+                order_items_data['itemPriceCurrencyAmount'].append(
+                    item_price.get("Amount", 0))
             else:
                 order_items_data['itemPriceCurrencyCode'].append("S/D")
                 order_items_data['itemPriceCurrencyAmount'].append(0)
-            
+
             # Información de impuestos
             item_tax = item.get("ItemTax")
             if item_tax:
-                order_items_data['itemTaxCurrencyCode'].append(item_tax.get("CurrencyCode", "S/D"))
-                order_items_data['itemTaxCurrencyAmount'].append(item_tax.get("Amount", 0))
+                order_items_data['itemTaxCurrencyCode'].append(
+                    item_tax.get("CurrencyCode", "S/D"))
+                order_items_data['itemTaxCurrencyAmount'].append(
+                    item_tax.get("Amount", 0))
             else:
                 order_items_data['itemTaxCurrencyCode'].append("S/D")
                 order_items_data['itemTaxCurrencyAmount'].append(0)
@@ -420,52 +468,55 @@ def getOrderItems(orderId: str, tagSubjectMail: str = ''):
         df_order_items['loadDateTime'] = datetime.now()
 
         if len(df_order_items.index) > 0:
-            print("#" * 5, " -El proceso de recolección de elementos de ordenes finalizó con éxito")
+            print(
+                "#" * 5, " -El proceso de recolección de elementos de ordenes finalizó con éxito")
             print("#" * 5, "-" * 70)
             return [df_order_items, 1]
         else:
-            print("#" * 5, " -El proceso de recolección de elementos finalizó pero no obtuvo resultados")
+            print(
+                "#" * 5, " -El proceso de recolección de elementos finalizó pero no obtuvo resultados")
             print("#" * 5, "-" * 70)
             return [pd.DataFrame(), 1]
 
     except SellingApiException as ex:
         logger.error(f"Amazon API error in getOrderItems: {ex}")
-        
+
         # Si es rate limit, retornar código de error para retry
         if hasattr(ex, 'code') and ex.code == 429:
-            print("#" * 5, f" -Rate limit alcanzado para elementos de ordenes {orderId}")
+            print(
+                "#" * 5, f" -Rate limit alcanzado para elementos de ordenes {orderId}")
             return [pd.DataFrame([ex.code], columns=["code"]), 0]
-    
-        
+
         return [pd.DataFrame(), 0]
 
     except Exception as ex:
         logger.error(f"Amazon error in getOrderItems: {ex}")
 
-        
         return [pd.DataFrame(), 0]
+
 
 def getSales(asinp: str, skup: str, market: list, intervalp: tuple, tagSubjectMail: str = ''):
     """
     Recupera métricas de ventas para un ASIN/SKU específico desde Amazon SP-API
-    
+
     Args:
         asinp: ASIN del producto
         skup: SKU del producto  
         market: Lista de mercados
         intervalp: Tupla con intervalo de fechas
         tagSubjectMail: Tag para identificación en logs
-    
+
     Returns:
         [DataFrame, success_flag]: DataFrame con métricas de ventas y flag de éxito
     """
     logger = logging.getLogger(f"{__name__}.getSales")
     mkt = getNameMarket(market[0])
-    
+
     try:
         print("#" * 5, "-" * 70)
-        print("#" * 5, " ¡Proceso de recolección de métricas de ventas! ", "#" * 5)   
-        print("#" * 5, f" -Recuperando métricas para ASIN {asinp} del mercado {mkt[0]}")
+        print("#" * 5, " ¡Proceso de recolección de métricas de ventas! ", "#" * 5)
+        print(
+            "#" * 5, f" -Recuperando métricas para ASIN {asinp} del mercado {mkt[0]}")
 
         # Estructura para almacenar datos
         sales_data = {
@@ -483,9 +534,9 @@ def getSales(asinp: str, skup: str, market: list, intervalp: tuple, tagSubjectMa
 
         # Llamada a la API - usando granularidad por hora
         sales = Sales(credentials=credentials).get_order_metrics(
-            interval=intervalp, 
-            granularity=Granularity.HOUR, 
-            asin=asinp, 
+            interval=intervalp,
+            granularity=Granularity.HOUR,
+            asin=asinp,
             marketplaceIds=market
         )
 
@@ -499,73 +550,85 @@ def getSales(asinp: str, skup: str, market: list, intervalp: tuple, tagSubjectMa
                 sales_data['intervalHour'].append(item_sale.get('interval'))
                 sales_data['qOrders'].append(item_sale.get('orderCount'))
                 sales_data['undSold'].append(item_sale.get('unitCount'))
-                
+
                 # Precio promedio por unidad
                 avg_price = item_sale.get('averageUnitPrice', {})
-                sales_data['avgPriceUndCurrencyCode'].append(avg_price.get('currencyCode'))
+                sales_data['avgPriceUndCurrencyCode'].append(
+                    avg_price.get('currencyCode'))
                 sales_data['avgPriceUndAmount'].append(avg_price.get('amount'))
-                
+
                 # Total de ventas
                 total_sales = item_sale.get('totalSales', {})
-                sales_data['totalPriceSoldCurrencyCode'].append(total_sales.get('currencyCode'))
-                sales_data['totalPriceSoldAmount'].append(total_sales.get('amount'))
+                sales_data['totalPriceSoldCurrencyCode'].append(
+                    total_sales.get('currencyCode'))
+                sales_data['totalPriceSoldAmount'].append(
+                    total_sales.get('amount'))
 
         # Crear DataFrame solo si hay datos
         if any(sales_data.values()):
             df_sales = pd.DataFrame(sales_data)
-            
+
             # Procesar campos de fecha/hora
             df_sales['auxDate'] = df_sales['intervalHour']
             df_sales['saleDate'] = df_sales['intervalHour'].str.slice(stop=10)
-            df_sales['intervalHour'] = df_sales['intervalHour'].str.slice(start=11, stop=16)
-            
+            df_sales['intervalHour'] = df_sales['intervalHour'].str.slice(
+                start=11, stop=16)
+
             # Fecha/hora completa
             df_sales['saleDateTime'] = df_sales['auxDate'].str.slice(stop=16)
-            df_sales['saleDateTime'] = df_sales['saleDateTime'].str.replace("T", " ", regex=True)
-            
+            df_sales['saleDateTime'] = df_sales['saleDateTime'].str.replace(
+                "T", " ", regex=True)
+
             # Convertir a timezone local (España)
             df_sales['saleDateEs'] = df_sales['auxDate'].str.slice(stop=16)
-            df_sales['saleDateEs'] = df_sales['saleDateEs'].str.replace("T", " ", regex=True)
-            df_sales['saleDateEs'] = pd.to_datetime(df_sales['saleDateEs'], format='%Y-%m-%d %H:%M') + timedelta(hours=2)
-            df_sales['auxDate'] = df_sales['saleDateEs'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            df_sales['saleDateEs'] = df_sales['saleDateEs'].str.replace(
+                "T", " ", regex=True)
+            df_sales['saleDateEs'] = pd.to_datetime(
+                df_sales['saleDateEs'], format='%Y-%m-%d %H:%M') + timedelta(hours=2)
+            df_sales['auxDate'] = df_sales['saleDateEs'].dt.strftime(
+                '%Y-%m-%d %H:%M:%S')
             df_sales['saleDateEs'] = df_sales['auxDate'].str.slice(stop=10)
-            df_sales['intervalHourEs'] = df_sales['auxDate'].str.slice(start=11, stop=16)
-            
+            df_sales['intervalHourEs'] = df_sales['auxDate'].str.slice(
+                start=11, stop=16)
+
             # Campos de auditoría
             df_sales['loadDate'] = str(datetime.date(datetime.now()))
             df_sales['loadDateTime'] = datetime.now()
             df_sales = df_sales.drop(columns=["auxDate"])
 
-            print("#" * 5, " -El proceso de recolección de métricas de ventas se realizó con éxito")
+            print(
+                "#" * 5, " -El proceso de recolección de métricas de ventas se realizó con éxito")
             print("#" * 5, "-" * 70)
             return [df_sales, 1]
         else:
-            print("#" * 5, " -El proceso de recolección de métricas de ventas finalizó pero no obtuvo resultados")
+            print(
+                "#" * 5, " -El proceso de recolección de métricas de ventas finalizó pero no obtuvo resultados")
             print("#" * 5, "-" * 70)
             return [pd.DataFrame(), 1]
 
     except SellingApiException as ex:
         logger.error(f"Amazon API error in getSales: {ex}")
-        
+
         # Si es rate limit, retornar código de error para retry
         if hasattr(ex, 'code') and ex.code == 429:
-            print("#" * 5, f" -Rate limit alcanzado para métricas de ASIN {asinp} en mercado {mkt[0]}")
+            print(
+                "#" * 5, f" -Rate limit alcanzado para métricas de ASIN {asinp} en mercado {mkt[0]}")
             return [pd.DataFrame([ex.code], columns=["code"]), 0]
-    
-        
+
         return [pd.DataFrame(), 0]
 
     except Exception as ex:
         logger.error(f"Amazon error in getSales: {ex}")
-                
+
         return [pd.DataFrame(), 0]
+
 
 def getNameMarket(idMarket: str):
     market = {
-        "A1RKKUPIHCS9HS":["España","https://www.amazon.es/sp?ie=UTF8&seller="],
-        "A1PA6795UKMFR9":["Alemania","https://www.amazon.de/sp?ie=UTF8&seller="],
-        "APJ6JRA9NG5V4":["Italia","https://www.amazon.it/sp?ie=UTF8&seller="],
-        "A1805IZSGTT6HS":["Paises bajos","https://www.amazon.nl/sp?ie=UTF8&seller="],
-        "AMEN7PMS3EDWL":["Belgica","https://www.amazon.be/sp?ie=UTF8&seller="]
+        "A1RKKUPIHCS9HS": ["España", "https://www.amazon.es/sp?ie=UTF8&seller="],
+        "A1PA6795UKMFR9": ["Alemania", "https://www.amazon.de/sp?ie=UTF8&seller="],
+        "APJ6JRA9NG5V4": ["Italia", "https://www.amazon.it/sp?ie=UTF8&seller="],
+        "A1805IZSGTT6HS": ["Paises bajos", "https://www.amazon.nl/sp?ie=UTF8&seller="],
+        "AMEN7PMS3EDWL": ["Belgica", "https://www.amazon.be/sp?ie=UTF8&seller="]
     }
     return market[idMarket]

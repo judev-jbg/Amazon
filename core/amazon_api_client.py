@@ -4,7 +4,7 @@ import aiohttp
 from typing import List, Dict, Tuple, Any
 from infrastructure.rate_limiter import RateLimiter, APIEndpoint, rate_limited
 from infrastructure.decorators.retry_decorator import async_retry
-from libs.transform import getOrder, getOrders, getOrderItems, getSales
+from core.api.amazon_sp_api_wrapper import AmazonSPAPIWrapper
 
 """
 FUNCIONALIDAD:
@@ -47,137 +47,91 @@ class AmazonAPIClient:
     async def _get_orders_for_market(self, market: str, date_from: datetime,
                                      date_to: datetime) -> List[dict]:
         """
-        Obtener ordenes para un mercado específico con retry automático
-
-        Args:
-            market: Mercado a consultar
-            date_from: Fecha de inicio
-            date_to: Fecha de fin
-
-        Returns:
-            Lista de órdenes
+        Obtener ordenes para un mercado específico
+        Ahora usa el wrapper limpio en lugar de libs/transform.py
         """
         print("#" * 5, "=" * 70)
         print("#" * 5, " GET ORDERS")
 
-        # Usar función existente pero con async
+        # Usar wrapper asíncrono
         result = await asyncio.to_thread(
-            getOrders,
-            dateInit=date_from.isoformat(),
-            dateEnd=date_to.isoformat(),
-            market=[market]
+            self.api_wrapper.get_orders,
+            date_from=date_from.isoformat(),
+            date_to=date_to.isoformat(),
+            markets=[market]
         )
 
-        # Success con datos
-        if result[1] == 1 and not result[0].empty:
-            return result[0].to_dict('records')
+        orders, success = result
 
-        # Success sin datos
-        if result[1] == 1 and result[0].empty:
+        if success and orders:
+            return orders
+
+        if success and not orders:
             return []
 
-        # Error - el decorador @async_retry manejará el reintento
-        if result[1] == 0:
-            # Si hay código de rate limit, manejarlo
-            if not result[0].empty and 'code' in result[0].columns and result[0]['code'].iloc[0]:
+        # Error - verificar rate limit
+        if orders and isinstance(orders, list) and len(orders) > 0:
+            if isinstance(orders[0], dict) and orders[0].get('code') == 429:
                 print("#" * 5, " -Rate limit alcanzado")
-            raise Exception("API request failed")
 
-        return []
+        raise Exception("API request failed")
 
     @rate_limited(APIEndpoint.ORDER_ITEMS)
     @async_retry(max_retries=3, backoff_base=2)
     async def get_order_items(self, order_id: str) -> List[Dict]:
-        """
-        Obtener elementos de una orden específica con retry automático
-
-        Args:
-            order_id: ID de la orden de Amazon
-
-        Returns:
-            Lista de elementos de la orden
-        """
-        # Usar la función existente pero de forma asíncrona
+        """Obtener elementos de una orden usando wrapper"""
         result = await asyncio.to_thread(
-            getOrderItems,
-            orderId=order_id,
-            tagSubjectMail="AmazonAPIClient.get_order_items"
+            self.api_wrapper.get_order_items,
+            order_id=order_id
         )
 
-        if result[1] == 1:  # Success
-            order_items = result[0].to_dict(
-                'records') if not result[0].empty else []
-            print(
-                f"Elementos de la orden {order_id} recuperados con éxito: {len(order_items)} elemento(s)")
-            return order_items
+        items, success = result
 
-        # Error - el decorador manejará el retry
-        raise Exception(f"Error en la función para el pedido {order_id}")
+        if success:
+            print(
+                f"Elementos de la orden {order_id} recuperados: {len(items)} elemento(s)")
+            return items
+
+        raise Exception(f"Error obteniendo items para {order_id}")
 
     @rate_limited(APIEndpoint.ORDER)
     @async_retry(max_retries=3, backoff_base=2)
     async def get_order(self, order_id: str) -> Dict:
-        """
-        Obtener una orden específica con retry automático
-
-        Args:
-            order_id: ID de la orden de Amazon
-
-        Returns:
-            Orden en formato dict
-        """
-        # Usar la función existente pero de forma asíncrona
+        """Obtener una orden específica usando wrapper"""
         result = await asyncio.to_thread(
-            getOrder,
-            orderId=order_id,
-            tagSubjectMail="AmazonAPIClient.get_order"
+            self.api_wrapper.get_order,
+            order_id=order_id
         )
 
-        if result[1] == 1:  # Success
-            order = result[0].to_dict(
-                'records')[0] if not result[0].empty else None
-            print(f"Orden {order_id} recuperada con éxito.")
+        order, success = result
+
+        if success and order:
+            print(f"Orden {order_id} recuperada con éxito")
             return order
 
-        # Error - el decorador manejará el retry
-        raise Exception(
-            f"Error en la función get_order para el pedido {order_id}")
+        raise Exception(f"Error obteniendo orden {order_id}")
 
     @rate_limited(APIEndpoint.SALES)
     @async_retry(max_retries=3, backoff_base=2)
     async def get_sales_data(self, asin: str, sku: str, market: List[str],
                              interval: Tuple[str, str]) -> List[Dict]:
-        """
-        Obtener datos de ventas para un ASIN/SKU específico con retry automático
-
-        Args:
-            asin: ASIN del producto
-            sku: SKU del producto
-            market: Lista de mercados
-            interval: Tupla con fechas de inicio y fin
-
-        Returns:
-            Lista de métricas de ventas
-        """
-        # Usar la función existente pero de forma asíncrona
+        """Obtener datos de ventas usando wrapper"""
         result = await asyncio.to_thread(
-            getSales,
-            asinp=asin,
-            skup=sku,
-            market=market,
-            intervalp=interval,
-            tagSubjectMail="AmazonAPIClient.get_sales_data"
+            self.api_wrapper.get_sales,
+            asin=asin,
+            sku=sku,
+            marketplace=market[0],
+            interval=interval
         )
 
-        if result[1] == 1:  # Success
-            sales_data = result[0].to_dict(
-                'records') if not result[0].empty else []
-            print(
-                f"Métricas de venta para {asin}/{sku} recuperadas con éxito: {len(sales_data)} métrica(s)")
-            return sales_data
+        sales, success = result
 
-        # Error - el decorador manejará el retry
-        raise Exception(f"Legacy function returned error for {asin}/{sku}")
+        if success:
+            print(
+                f"Métricas de venta para {asin}/{sku}: {len(sales)} métrica(s)")
+            return sales
+
+        raise Exception(f"Error obteniendo ventas para {asin}/{sku}")
 
     async def get_order_items_batch(self, order_ids: List[str], batch_size: int = 10) -> Dict[str, List[Dict]]:
         """
