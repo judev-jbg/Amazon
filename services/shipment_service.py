@@ -166,13 +166,13 @@ class ShipmentService:
         """Actualizar las 3 bases de datos con información de envío"""
         try:
             # 1. Actualizar ordersdetail
-            update_success_details = await self.db_manager.update_shipment_order_details(df_shipments)
+            update_success_details = await self.db_manager.shipments.update_shipment_order_details(df_shipments)
 
             # 2. Actualizar orders
-            update_success_orders = await self.db_manager.update_shipment_orders(df_shipments)
+            update_success_orders = await self.db_manager.shipments.update_shipment_orders(df_shipments)
 
             # 3. Actualizar Prestashop ps_order_carrier
-            update_success_prestashop = await self.db_manager.update_shipment_prestashop(df_shipments)
+            update_success_prestashop = await self.db_manager.shipments.update_shipment_prestashop(df_shipments)
 
             # Verificar que todas las actualizaciones fueron exitosas
             all_success = update_success_details and update_success_orders and update_success_prestashop

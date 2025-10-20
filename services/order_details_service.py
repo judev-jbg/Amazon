@@ -99,7 +99,7 @@ class OrderDetailsService:
 
             # 8. Actualizar referencias (como en el código original)
             if insert_count > 0:
-                await self.db_manager.update_asin_references()
+                await self.db_manager.order_details.update_asin_references()
 
             # 9. Actualizar datos de Prestashop
             # await self._update_prestashop_references()
@@ -165,7 +165,7 @@ class OrderDetailsService:
 
         self.logger.info(
             f"El dataframe tiene {len(df_to_insert)} registros para insertar en la BD")
-        await self.db_manager.insert_order_details(df_to_insert)
+        await self.db_manager.order_details.insert_order_details(df_to_insert)
         self.logger.info("Proceso de insercion finalizado con exito")
         return len(df_to_insert)
 
@@ -177,16 +177,16 @@ class OrderDetailsService:
         # Añadir timestamp de actualización
         df_to_update['lastDateTimeUpdated'] = datetime.now()
 
-        await self.db_manager.update_order_details(df_to_update)
+        await self.db_manager.order_details.update_order_details(df_to_update)
         return len(df_to_update)
 
     # TODO: METODO PARA ELIMINAR
     async def _update_prestashop_references(self):
         """Actualizar referencias de Prestashop (como en el código original)"""
-        orders_without_ps_ref = await self.db_manager.get_orders_without_ps_reference()
+        orders_without_ps_ref = await self.db_manager.order_details.get_orders_without_ps_reference()
 
         if not orders_without_ps_ref.empty:
-            await self.db_manager.update_prestashop_order_references(orders_without_ps_ref)
+            await self.db_manager.order_details.update_prestashop_order_references(orders_without_ps_ref)
 
     async def _send_success_notification(self, insert_count: int, update_count: int, validation_errors: List[str]):
         """Enviar notificación de éxito"""

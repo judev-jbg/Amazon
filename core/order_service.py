@@ -147,7 +147,7 @@ class OrderExtractionService:
                 f"Procesamiento por lotes {i//batch_size + 1} : {len(batch)} ordenes")
 
             # 1. UPSERT órdenes
-            await self.db_manager.upsert_orders(batch)
+            await self.db_manager.orders.upsert_orders(batch)
 
             if config.extract_type == ExtractType.STATUS_UPDATE:
                 return
@@ -192,10 +192,10 @@ class OrderExtractionService:
 
             # 3. UPSERT items y ventas si hay datos
             if all_order_items:
-                await self.db_manager.upsert_order_items(all_order_items)
+                await self.db_manager.order_items.upsert_order_items(all_order_items)
 
             # if all_sales:
-            #     await self.db_manager.upsert_sales(all_sales)
+            #     await self.db_manager.sales.upsert_sales(all_sales)
 
             print(
                 f"Procesamiento por lotes completados: \n{len(batch)} ordenes. \n{len(all_order_items)} elementos de ordenes. \n{len(all_sales)} estadisticas de ventas.")
