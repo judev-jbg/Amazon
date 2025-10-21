@@ -2,13 +2,11 @@ import logging
 import aiomysql
 import config.setting as st
 
-from infrastructure.repositories import (
-    OrderRepository,
-    OrderItemRepository,
-    SalesRepository,
-    OrderDetailRepository,
-    ShipmentRepository
-)
+from infrastructure.repositories.order_repository import OrderRepository
+from infrastructure.repositories.order_item_repository import OrderItemRepository
+from infrastructure.repositories.sales_repository import SalesRepository
+from infrastructure.repositories.order_detail_repository import OrderDetailRepository
+from infrastructure.repositories.shipment_repository import ShipmentRepository
 
 
 class DatabaseManager:

@@ -4,7 +4,6 @@ Repositorio para operaciones de items de órdenes
 import logging
 from typing import List, Dict
 from datetime import datetime, date
-import aiomysql
 
 from domain.interfaces.repository_interfaces import IOrderItemRepository
 
