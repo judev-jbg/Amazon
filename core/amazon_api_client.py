@@ -244,38 +244,22 @@ class AmazonAPIClient:
 
         return all_orders
 
+    @rate_limited(APIEndpoint.ORDER)
+    @async_retry(max_retries=3, backoff_base=2)
     async def get_order_status(self, order_id: str) -> dict:
         """Obtener solo el status de una orden específica"""
-        retry_count = 0
-        max_retries = 3
+        result = await asyncio.to_thread(
+            self.api_wrapper.get_order,
+            order_id=order_id
+        )
 
-        while retry_count < max_retries:
-            try:
-                async with self.rate_limiter:
-                    # Usar función existente pero filtrar respuesta
-                    result = await asyncio.to_thread(
-                        getOrder,
-                        orderId=order_id,
-                        tagSubjectMail=self.__class__.__name__
-                    )
+        order, success = result
 
-                    if result[1] == 1 and not result[0].empty:  # Success
-                        order_data = result[0].iloc[0].to_dict()
+        if success and order:
+            print(f"Orden {order_id} recuperada con éxito")
+            return order
 
-                        return {
-                            'amazonOrderId': order_data.get('amazonOrderId_o', order_id),
-                            'orderStatus': order_data.get('orderStatus_o'),
-                            'lastUpdateDate': order_data.get('lastUpdateDate_o')
-                        }
-
-            except Exception as e:
-                retry_count += 1
-                if retry_count >= max_retries:
-                    raise
-
-                await asyncio.sleep(2 ** retry_count)
-
-        return {}
+        raise Exception(f"Error obteniendo orden {order_id}")
 
     async def health_check(self) -> Dict[str, Any]:
         """

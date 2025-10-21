@@ -210,7 +210,7 @@ class OrderExtractionService(AsyncService):
             return
 
         # Actualizar solo status, no hacer upsert completo
-        await self.db_manager.update_order_status_only(orders)
+        await self.db_manager.orders.update_order_status_only(orders)
 
     async def _send_success_notification(self, config: ExtractionConfig, order_count: int):
         """Enviar notificación de éxito (solo para procesos importantes)"""
