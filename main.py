@@ -26,7 +26,7 @@ async def main():
         parser = argparse.ArgumentParser(
             description='Amazon Seller Management')
         parser.add_argument('--mode', choices=['daily_full', 'incremental', 'status_update',
-                            'weekly_catchup', 'order_details', 'shipment_update'], required=True)
+                            'weekly_catchup', 'order_details', 'shipment_update', 'inventory_activate', 'inventory_deactivate', 'inventory_friday', 'inventory_monday', 'product_verification'], required=True)
         args = parser.parse_args()
         logger.info(f"📢 Procesamiento modo {args.mode} iniciado.")
 

@@ -16,6 +16,11 @@ from services.shipment_service import ShipmentService
 from utils.unified_order_processor import UnifiedOrderProcessor
 from infrastructure.data_validator import DataValidator
 from services.file_processor import FileProcessor
+from services.inventory_sync_service import InventorySyncService
+from infrastructure.repositories.mssql_product_repository import MSSQLProductRepository
+from core.api.amazon_listings_api_wrapper import AmazonListingsAPIWrapper
+from services.product_verification_service import ProductVerificationService
+from core.api.amazon_catalog_api_wrapper import AmazonCatalogAPIWrapper
 
 
 class DependencyContainer:
@@ -142,6 +147,31 @@ class DependencyContainer:
         container.register_singleton(
             UnifiedOrderProcessor,
             lambda c: UnifiedOrderProcessor()
+        )
+
+        container.register_singleton(
+            MSSQLProductRepository,
+            lambda c: MSSQLProductRepository()
+        )
+
+        container.register_singleton(
+            AmazonListingsAPIWrapper,
+            lambda c: AmazonListingsAPIWrapper()
+        )
+
+        container.register_singleton(
+            InventorySyncService,
+            lambda c: InventorySyncService()
+        )
+
+        container.register_singleton(
+            AmazonCatalogAPIWrapper,
+            lambda c: AmazonCatalogAPIWrapper()
+        )
+
+        container.register_singleton(
+            ProductVerificationService,
+            lambda c: ProductVerificationService()
         )
 
         # Registrar utilidades como transient
