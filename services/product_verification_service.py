@@ -1,4 +1,4 @@
-# services/product_verification_service.py
+
 """
 Servicio de verificación de productos entre ERP y Amazon
 Genera 3 archivos de análisis:
@@ -8,6 +8,7 @@ Genera 3 archivos de análisis:
 """
 
 import json
+import decimal
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Set
@@ -208,14 +209,22 @@ class ProductVerificationService(AsyncService):
         Returns:
             Dict con rutas de archivos generados
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        def decimal_default(obj):
+            """Converter para manejar objetos Decimal"""
+            if isinstance(obj, decimal.Decimal):
+                return float(obj)
+            raise TypeError(
+                f"Object of type {type(obj).__name__} is not JSON serializable")
+
+        timestamp = datetime.now().strftime("%Y%m%d")
         files = {}
 
         # 1. Crear en Amazon
         if missing_in_amazon:
             file_path = self.output_dir / f"crear_en_amazon_{timestamp}.json"
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(missing_in_amazon, f, indent=2, ensure_ascii=False)
+                json.dump(missing_in_amazon, f, indent=2,
+                          ensure_ascii=False, default=decimal_default)
             files['crear_en_amazon'] = file_path
             self.logger.info(f"📄 Generado: {file_path}")
 
@@ -223,7 +232,8 @@ class ProductVerificationService(AsyncService):
         if missing_in_erp:
             file_path = self.output_dir / f"crear_en_erp_{timestamp}.json"
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(missing_in_erp, f, indent=2, ensure_ascii=False)
+                json.dump(missing_in_erp, f, indent=2,
+                          ensure_ascii=False, default=decimal_default)
             files['crear_en_erp'] = file_path
             self.logger.info(f"📄 Generado: {file_path}")
 
@@ -232,7 +242,8 @@ class ProductVerificationService(AsyncService):
             file_path = self.output_dir / \
                 f"eliminar_de_amazon_{timestamp}.json"
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(should_delete, f, indent=2, ensure_ascii=False)
+                json.dump(should_delete, f, indent=2, ensure_ascii=False,
+                          default=decimal_default)
             files['eliminar_de_amazon'] = file_path
             self.logger.info(f"📄 Generado: {file_path}")
 

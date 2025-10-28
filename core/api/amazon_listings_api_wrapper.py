@@ -351,7 +351,7 @@ class AmazonListingsAPIWrapper:
             def check_connection():
                 listings_api = ListingsItems(credentials=self.credentials)
 
-                response = listings_api.get_listings_items(
+                response = listings_api.get_listings_item(
                     sellerId=self.seller_id,
                     marketplaceIds=['A1RKKUPIHCS9HS'],
                     pageSize=1

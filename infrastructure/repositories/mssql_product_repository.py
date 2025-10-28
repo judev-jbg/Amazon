@@ -123,7 +123,7 @@ class MSSQLProductRepository:
         SELECT IdArticulo
         FROM [toolstock].[dbo].[Articulos]
         WHERE Estado = 0 
-        AND IdMarcaArticulo IN (2, 3)
+        AND IdMarcaArticulo IN (2)
         ORDER BY IdArticulo
         """
 
@@ -162,7 +162,8 @@ class MSSQLProductRepository:
             FROM [toolstock].[dbo].[Listas_Precios_Prov_Art]
             WHERE IdLista = 1
         ) p ON p.IdArticulo = a.IdArticulo
-        WHERE a.IdMarcaArticulo IN (2, 3)
+        WHERE a.IdMarcaArticulo IN (2, 3, 4, 15, 17, 16)
+        AND a.Estado = 0
         ORDER BY a.IdArticulo
         """
 
@@ -202,7 +203,7 @@ class MSSQLProductRepository:
             WHERE IdLista = 1
         ) p ON p.IdArticulo = a.IdArticulo
         WHERE a.Estado = 0 
-        AND a.IdMarcaArticulo IN (2, 3)
+        AND a.IdMarcaArticulo IN (2, 3, 4, 15, 17, 16)
         ORDER BY a.IdArticulo
         """
 
@@ -234,7 +235,7 @@ class MSSQLProductRepository:
             Descrip AS Descripcion,
             Estado
         FROM [toolstock].[dbo].[Articulos]
-        WHERE IdMarcaArticulo IN (2, 3)
+        WHERE IdMarcaArticulo IN (2, 3, 4, 15, 17, 16)
         AND Estado = ?
         ORDER BY IdArticulo
         """
@@ -278,7 +279,7 @@ class MSSQLProductRepository:
             WHERE IdLista = 1
         ) p ON p.IdArticulo = a.IdArticulo
         WHERE a.IdArticulo = ?
-        AND a.IdMarcaArticulo IN (2, 3)
+        AND a.IdMarcaArticulo IN (2, 3, 4, 15, 17, 16)
         """
 
         try:

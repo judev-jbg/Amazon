@@ -21,6 +21,10 @@ from infrastructure.repositories.mssql_product_repository import MSSQLProductRep
 from core.api.amazon_listings_api_wrapper import AmazonListingsAPIWrapper
 from services.product_verification_service import ProductVerificationService
 from core.api.amazon_catalog_api_wrapper import AmazonCatalogAPIWrapper
+from services.price_analysis_service import PriceAnalysisService
+from core.api.amazon_pricing_api_wrapper import AmazonPricingAPIWrapper
+from core.calculators.pvpm_calculator import PVPMCalculator
+from core.calculators.pricing_strategy import PricingStrategyCalculator
 
 
 class DependencyContainer:
@@ -172,6 +176,26 @@ class DependencyContainer:
         container.register_singleton(
             ProductVerificationService,
             lambda c: ProductVerificationService()
+        )
+
+        container.register_singleton(
+            AmazonPricingAPIWrapper,
+            lambda c: AmazonPricingAPIWrapper()
+        )
+
+        container.register_singleton(
+            PVPMCalculator,
+            lambda c: PVPMCalculator()
+        )
+
+        container.register_singleton(
+            PricingStrategyCalculator,
+            lambda c: PricingStrategyCalculator()
+        )
+
+        container.register_singleton(
+            PriceAnalysisService,
+            lambda c: PriceAnalysisService()
         )
 
         # Registrar utilidades como transient

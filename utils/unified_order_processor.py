@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime, timedelta
 from enum import Enum
 from config import setting as st
 from core.order_service import OrderExtractionService, ExtractType
@@ -9,6 +8,7 @@ from utils.datetime_helper import datetime_helper
 from models.extraction_config import ExtractionConfig
 from services.inventory_sync_service import InventorySyncService, InventoryUpdateMode
 from services.product_verification_service import ProductVerificationService
+from services.price_analysis_service import PriceAnalysisService
 
 
 """
@@ -32,6 +32,8 @@ class ProcessMode(Enum):
     INVENTORY_FRIDAY = "inventory_friday"
     INVENTORY_MONDAY = "inventory_monday"
     PRODUCT_VERIFICATION = "product_verification"
+    PRICE_ANALYSIS = "price_analysis"
+    PRICE_ANALYSIS_PRIORITY = "price_analysis_priority"
 
 
 class UnifiedOrderProcessor:
@@ -41,6 +43,7 @@ class UnifiedOrderProcessor:
         self.shipment_service = ShipmentService()
         self.inventory_service = InventorySyncService()
         self.verification_service = ProductVerificationService()
+        self.pricing_service = PriceAnalysisService()
         self.logger = logging.getLogger("AmazonManagement")
         self.logger.info("🚀 UnifiedOrderProcessor inicializado")
 
@@ -69,6 +72,10 @@ class UnifiedOrderProcessor:
             ProcessMode.INVENTORY_MONDAY: self._run_inventory_sync,
             # Modo de verificación de productos
             ProcessMode.PRODUCT_VERIFICATION: self._run_product_verification,
+            # Modos de análisis de precios
+            ProcessMode.PRICE_ANALYSIS: self._run_price_analysis,
+            ProcessMode.PRICE_ANALYSIS_PRIORITY: self._run_price_analysis_priority,
+
 
         }
 
@@ -111,6 +118,17 @@ class UnifiedOrderProcessor:
     async def _run_product_verification(self, mode: ProcessMode):
         """Ejecutar verificación de productos"""
         return await self.verification_service.verify_products()
+
+    async def _run_price_analysis(self, mode: ProcessMode):
+        """Ejecutar análisis de precios normal"""
+        return await self.pricing_service.analyze_prices(force_refresh=False)
+
+    async def _run_price_analysis_priority(self, mode: ProcessMode):
+        """Ejecutar análisis de precios prioritario"""
+        return await self.pricing_service.analyze_prices(
+            force_refresh=True,
+            priority_mode=True
+        )
 
     async def _run_api_service(self, mode: ProcessMode):
         """Ejecutar servicios que usan API"""

@@ -3,6 +3,7 @@ logs/*
 config/*
 .venv*
 source/
+output/
 
 
 # Archivos de Python
