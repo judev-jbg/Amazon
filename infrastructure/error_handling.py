@@ -19,7 +19,6 @@ FUNCIONALIDAD:
 """
 
 
-
 class EnhancedErrorHandler:
     def __init__(self):
         self.logs_dir = Path("logs")
@@ -29,20 +28,19 @@ class EnhancedErrorHandler:
         self._email_initialized = False
         self.metrics = MetricsCollector()
         self._recent_notifications = {}
-        
+
     def _setup_logger(self):
         """Configurar logging estructurado"""
         logger = logging.getLogger('AmazonManagement')
         logger.setLevel(logging.DEBUG)
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
-        
-        
+
         # Formato estructurado
         formatter = logging.Formatter(
             '%(asctime)s | %(levelname)s | %(filename)s:%(funcName)s:%(lineno)d | %(message)s'
         )
-        
+
         # 1. Handler para CONSOLA
         # Handler para STDOUT (INFO y DEBUG)
         stdout_handler = logging.StreamHandler(sys.stdout)
@@ -51,7 +49,7 @@ class EnhancedErrorHandler:
         # Filtro para que solo INFO y DEBUG vayan a stdout
         stdout_handler.addFilter(lambda record: record.levelno <= logging.INFO)
         logger.addHandler(stdout_handler)
-        
+
         # Handler para STDERR (WARNING, ERROR, CRITICAL)
         stderr_handler = logging.StreamHandler(sys.stderr)
         stderr_handler.setLevel(logging.WARNING)
@@ -60,27 +58,29 @@ class EnhancedErrorHandler:
 
         # 2. Handler para archivo general
         try:
-            file_handler = logging.FileHandler(self.logs_dir / 'general.log', encoding='utf-8')
+            file_handler = logging.FileHandler(
+                self.logs_dir / 'general.log', encoding='utf-8')
             file_handler.setLevel(logging.INFO)
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
         except Exception as e:
             print(f"❌ Error al crear el gestor de archivos: {e}")
-        
+
         # 3. Handler para errores críticos
         try:
-            error_handler = logging.FileHandler(self.logs_dir / 'critical_errors.log', encoding='utf-8')
+            error_handler = logging.FileHandler(
+                self.logs_dir / 'critical_errors.log', encoding='utf-8')
             error_handler.setLevel(logging.ERROR)
             error_handler.setFormatter(formatter)
             logger.addHandler(error_handler)
         except Exception as e:
             print(f"❌ Error al crear el gestor de archivos: {e}")
-        
+
         # Evitar propagación a root logger
         logger.propagate = False
 
         return logger
-    
+
     async def _init_email_client(self):
         """Inicializar cliente de email lazy loading"""
         if not self._email_initialized:
@@ -90,33 +90,35 @@ class EnhancedErrorHandler:
                 self._email_initialized = True
                 self.logger.info("📧 Cliente de Email inicializado")
             except Exception as e:
-                self.logger.error(f"❌ Error al iniciar el cliente de Email: {e}")
+                self.logger.error(
+                    f"❌ Error al iniciar el cliente de Email: {e}")
                 self.email_client = None
-    
+
     async def handle_error(self, error: Exception, context: Dict[str, Any] = None):
         """Manejo centralizado de errores"""
 
         try:
             error_context = self._create_error_context(error, context)
-            
+
             # 1. Log estructurado
             await self._log_error(error_context)
-            
+
             # 2. Métricas
             try:
 
                 await self.metrics.record_process_error(error_context)
             except Exception as metrics_error:
-                self.logger.warning(f"Fallo en el registro de métricas: {metrics_error}")
-            
+                self.logger.warning(
+                    f"Fallo en el registro de métricas: {metrics_error}")
+
             # 3. Notificación por email (si aplica)
             if self._should_send_email(error_context):
                 await self._send_error_notification(error_context)
-            
+
             # 4. Alertas adicionales para errores críticos
             if error_context.level == AlertLevel.CRITICAL:
                 await self._send_critical_alert(error_context)
-        
+
         except Exception as handler_error:
             # Fallback: al menos imprimir en consola si todo falla
             print(f"❌ CRITICO: Error del gestor de errores: {handler_error}")
@@ -140,7 +142,7 @@ class EnhancedErrorHandler:
             'context': context or {}
         }
         self.logger.warning(log_message, extra=extra_data)
-                
+
         # Decidir si enviar email (solo para warnings importantes)
         if context and context.get('send_email', False):
             await self._send_warning_notification(message, context)
@@ -149,7 +151,7 @@ class EnhancedErrorHandler:
         """Crear contexto enriquecido del error"""
         tb = traceback.extract_tb(error.__traceback__)
         frame = tb[-1] if tb else None
-        
+
         return ErrorContext(
             error_type=type(error).__name__,
             error_message=str(error),
@@ -164,7 +166,7 @@ class EnhancedErrorHandler:
             process_mode=context.get('process_mode') if context else None,
             market_id=context.get('market_id') if context else None
         )
-    
+
     def _categorize_error(self, error: Exception) -> ErrorCategory:
         """Categorizar el error automáticamente"""
         error_mappings = {
@@ -176,36 +178,37 @@ class EnhancedErrorHandler:
             'FileNotFoundError': ErrorCategory.SYSTEM_ERROR,
             'PermissionError': ErrorCategory.SYSTEM_ERROR,
         }
-        
+
         error_type = type(error).__name__
         return error_mappings.get(error_type, ErrorCategory.SYSTEM_ERROR)
-    
+
     def _determine_alert_level(self, error: Exception) -> AlertLevel:
         """Determinar nivel de alerta"""
-        critical_errors = ['DatabaseError', 'ConnectionError', 'AuthenticationError']
+        critical_errors = ['DatabaseError',
+                           'ConnectionError', 'AuthenticationError']
         warning_errors = ['SellingApiException', 'RateLimitError']
-        
+
         error_type = type(error).__name__
-        
+
         if error_type in critical_errors:
             return AlertLevel.CRITICAL
         elif error_type in warning_errors:
             return AlertLevel.WARNING
         else:
             return AlertLevel.ERROR
-    
+
     async def _log_error(self, error_context: ErrorContext):
         """Log estructurado del error"""
         log_message = (
             f"[{error_context.category.value}] {error_context.error_type}: {error_context.error_message}"
         )
-        
+
         if error_context.process_mode:
             log_message += f" | Mode: {error_context.process_mode}"
-        
+
         if error_context.market_id:
             log_message += f" | Market: {error_context.market_id}"
-        
+
         # Log según nivel
         if error_context.level == AlertLevel.CRITICAL:
             self.logger.critical(log_message)
@@ -220,7 +223,7 @@ class EnhancedErrorHandler:
             print(f"WARNING: {log_message}", file=sys.stderr)
         else:
             self.logger.info(log_message)
-    
+
     async def _log_to_csv(self, error_context: ErrorContext):
         """Mantener logging a CSV (compatibilidad)"""
         log_entry = {
@@ -233,19 +236,19 @@ class EnhancedErrorHandler:
             'category': error_context.category.value,
             'level': error_context.level.value
         }
-        
+
         # Usar aiofiles para escritura async
         async with aiofiles.open('logs/info_event_log.csv', 'a') as f:
             await f.write(f"{log_entry}\n")
-    
+
     def _should_send_email(self, error_context: ErrorContext) -> bool:
         """Determinar si enviar email"""
         # Enviar email para errores y críticos, pero no para warnings repetitivos
         if error_context.level not in [AlertLevel.ERROR, AlertLevel.CRITICAL]:
             return False
-    
+
         return self._was_recently_notified(error_context)
-    
+
     def _was_recently_notified(self, error_context: ErrorContext) -> bool:
         """Verificar si ya se notificó recientemente (evitar spam)"""
         now = datetime.now()
@@ -255,31 +258,33 @@ class EnhancedErrorHandler:
             time_diff = now - self._recent_notifications[key]
             if time_diff.total_seconds() < 1800:  # 30 minutos
                 return False
-        
+
         self._recent_notifications[key] = now
         return True
-    
+
     async def _send_error_notification(self, error_context: ErrorContext):
         """Enviar notificación por email"""
         try:
 
             await self._init_email_client()
             if not self.email_client:
-                self.logger.warning("Cliente de Email no disponible, omitiendo nortificacion")
+                self.logger.warning(
+                    "Cliente de Email no disponible, omitiendo nortificacion")
                 return
-            
-            subject = f"🚨 [{error_context.level.value.upper()}] Amazon Management - {error_context.error_type}"
-        
+
+            subject = f"[{error_context.level.value.upper()}] Amazon Management - {error_context.error_type}"
+
             html_body = self._generate_error_html(error_context)
-            
+
             await self.email_client.send_email(
                 subject=subject,
                 html_body=html_body,
                 recipients=st.setting_email_recipients['errors']
             )
 
-            self.logger.info(f"📧 Notificacion de error enviada para {error_context.error_type}")
-        
+            self.logger.info(
+                f"📧 Notificacion de error enviada para {error_context.error_type}")
+
         except Exception as email_error:
             self.logger.info(f"📧 El envio de notificacion: {email_error}")
 
@@ -287,10 +292,11 @@ class EnhancedErrorHandler:
         """Enviar alerta crítica (múltiples canales)"""
         await self._init_email_client()
         if not self.email_client:
-            self.logger.warning("Cliente de Email no disponible, omitiendo nortificacion")
+            self.logger.warning(
+                "Cliente de Email no disponible, omitiendo nortificacion")
             return
-        
-        subject = f"🔥 [CRITICAL]: Amazon Manager - {error_context.error_type}"
+
+        subject = f"[CRITICAL]: Amazon Manager - {error_context.error_type}"
 
         # Email prioritario
         await self.email_client.send_priority_email(
@@ -303,9 +309,10 @@ class EnhancedErrorHandler:
         """Enviar alerta crítica (múltiples canales)"""
         await self._init_email_client()
         if not self.email_client:
-            self.logger.warning("Cliente de Email no disponible, omitiendo nortificacion")
+            self.logger.warning(
+                "Cliente de Email no disponible, omitiendo nortificacion")
             return
-        
+
         subject = f"⚠️ [WARNING]: Amazon Manager"
 
         # Email prioritario
@@ -400,7 +407,7 @@ class EnhancedErrorHandler:
         </body>
         </html>
         """
-    
+
     def _get_suggested_actions(self, error_context: ErrorContext) -> str:
         """Generar acciones sugeridas según el tipo de error"""
         actions = {
@@ -426,5 +433,5 @@ class EnhancedErrorHandler:
                 </ul>
             """
         }
-        
+
         return actions.get(error_context.category, "<p>Revisar logs para más detalles</p>")

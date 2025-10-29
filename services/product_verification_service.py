@@ -9,6 +9,7 @@ Genera 3 archivos de análisis:
 
 import json
 import decimal
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Set
@@ -44,6 +45,7 @@ class ProductVerificationService(AsyncService):
         self.register_dependency(self.mssql_repo)
         self.register_dependency(self.error_handler)
 
+        self.logger = logging.getLogger("AmazonManagement")
         self.logger.info("🚀 ProductVerificationService inicializado")
 
     async def verify_products(self) -> bool:

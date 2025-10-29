@@ -17,7 +17,7 @@ class AmazonCatalogAPIWrapper:
 
     def __init__(self):
         self.credentials = self._load_credentials()
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger("AmazonManagement")
 
         # Cache para evitar requests repetidas
         self._sku_cache = None
@@ -85,7 +85,7 @@ class AmazonCatalogAPIWrapper:
                 if next_token:
                     params['pageToken'] = next_token
 
-                response = listings_api.get_listings_items(**params)
+                response = listings_api.search_listings_items(**params)
 
                 # Extraer SKUs
                 items = response.payload.get('items', [])
@@ -95,11 +95,14 @@ class AmazonCatalogAPIWrapper:
                         skus.add(sku)
 
                 # Verificar si hay más páginas
-                next_token = response.payload.get('nextToken')
+                next_token = response.next_token
                 if not next_token:
                     break
 
-            self.logger.info(f"✅ {len(skus)} SKUs obtenidos de Amazon")
+            if not skus:
+                self.logger.warning("⚠️ No se encontraron SKUs en Amazon")
+            else:
+                self.logger.info(f"✅ {len(skus)} SKUs obtenidos de Amazon")
 
             # Actualizar cache
             self._sku_cache = skus
