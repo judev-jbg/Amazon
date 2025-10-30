@@ -8,12 +8,14 @@ Objetivos:
 4. CRÍTICO: Nunca vender por debajo de PVPM
 """
 import asyncio
+from decimal import Decimal
+import decimal
 import json
+import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
-
 from infrastructure.base.async_service import AsyncService
 from infrastructure.error_handling import EnhancedErrorHandler
 from infrastructure.repositories.mssql_product_repository import MSSQLProductRepository
@@ -73,6 +75,7 @@ class PriceAnalysisService(AsyncService):
         self.register_dependency(self.mssql_repo)
         self.register_dependency(self.error_handler)
 
+        self.logger = logging.getLogger("AmazonManagement")
         self.logger.info("🚀 PriceAnalysisService inicializado")
 
     async def analyze_prices(self, force_refresh: bool = False) -> bool:
@@ -204,6 +207,7 @@ class PriceAnalysisService(AsyncService):
                 if not force_refresh and self._is_cached(sku):
                     result = self._get_from_cache(sku)
                     results.append(result)
+                    self.logger.debug(f"✓ Cache hit: {sku}")
                     continue
 
                 # Analizar producto
@@ -219,7 +223,7 @@ class PriceAnalysisService(AsyncService):
 
             # Pequeña pausa entre lotes (rate limiting)
             if i + batch_size < len(products):
-                await asyncio.sleep(2)
+                await asyncio.sleep(10)
 
         return results
 
@@ -227,43 +231,50 @@ class PriceAnalysisService(AsyncService):
         """
         Analizar un producto individual
         """
-        sku = product['IdArticulo']
-        pvpm = product['pvpm']
+        try:
+            sku = product['IdArticulo']
+            pvpm = product['pvpm']
 
-        # 1. Obtener pricing info de Amazon
-        pricing_info = await self.pricing_api.get_competitive_pricing(sku)
+            # 1. Obtener pricing info de Amazon
+            self.logger.info(f"🔍 Analizando producto {sku}")
+            pricing_info = await self.pricing_api.get_competitive_pricing(sku)
 
-        if not pricing_info['success']:
-            self.logger.warning(f"No se pudo obtener pricing para {sku}")
+            if not pricing_info['success']:
+                self.logger.warning(f"No se pudo obtener pricing para {sku}")
+                return None
+
+            asin = pricing_info.get('asin')
+            current_price = pricing_info.get('your_price')
+            buybox_price = pricing_info.get('buybox_price')
+            competitors = pricing_info.get('competitors', [])
+
+            # 2. Aplicar estrategia de pricing
+            recommendation = self.strategy_calculator.calculate_optimal_price(
+                pvpm=pvpm,
+                current_price=current_price,
+                buybox_price=buybox_price,
+                competitors=competitors
+            )
+
+            # 3. Crear resultado
+            result = PriceAnalysisResult(
+                sku=sku,
+                asin=asin,
+                pvpm=pvpm,
+                current_price=current_price,
+                competitor_buybox_price=buybox_price,
+                lowest_competitor_price=min(
+                    competitors) if competitors else None,
+                recommendation=recommendation['action'],
+                new_price=recommendation.get('new_price'),
+                savings_potential=recommendation.get('savings')
+            )
+
+            return result
+        except Exception as e:
+            self.logger.error(
+                f"Error analizando producto {product.get('IdArticulo')}: {e}")
             return None
-
-        asin = pricing_info.get('asin')
-        current_price = pricing_info.get('your_price')
-        buybox_price = pricing_info.get('buybox_price')
-        competitors = pricing_info.get('competitors', [])
-
-        # 2. Aplicar estrategia de pricing
-        recommendation = self.strategy_calculator.calculate_optimal_price(
-            pvpm=pvpm,
-            current_price=current_price,
-            buybox_price=buybox_price,
-            competitors=competitors
-        )
-
-        # 3. Crear resultado
-        result = PriceAnalysisResult(
-            sku=sku,
-            asin=asin,
-            pvpm=pvpm,
-            current_price=current_price,
-            competitor_buybox_price=buybox_price,
-            lowest_competitor_price=min(competitors) if competitors else None,
-            recommendation=recommendation['action'],
-            new_price=recommendation.get('new_price'),
-            savings_potential=recommendation.get('savings')
-        )
-
-        return result
 
     def _classify_results(self, results: List[PriceAnalysisResult]) -> Dict:
         """
@@ -275,7 +286,7 @@ class PriceAnalysisService(AsyncService):
 
         for result in results:
             # CRÍTICO: Precio por debajo de PVPM
-            if result.current_price < result.pvpm:
+            if Decimal(result.current_price) < Decimal(result.pvpm):
                 below_pvpm.append(result)
 
             # Oportunidad de ganar buybox
@@ -300,6 +311,14 @@ class PriceAnalysisService(AsyncService):
         """
         Generar 3 archivos JSON con recomendaciones
         """
+
+        def decimal_default(obj):
+            """Converter para manejar objetos Decimal"""
+            if isinstance(obj, decimal.Decimal):
+                return float(obj)
+            raise TypeError(
+                f"Object of type {type(obj).__name__} is not JSON serializable")
+
         timestamp = datetime.now().strftime("%Y%m%d")
         files = {}
 
@@ -312,12 +331,13 @@ class PriceAnalysisService(AsyncService):
                     'asin': r.asin,
                     'precio_actual': r.current_price,
                     'pvpm': r.pvpm,
-                    'diferencia': round(r.pvpm - r.current_price, 2)
+                    'diferencia': round(Decimal(r.pvpm) - Decimal(r.current_price), 2)
                 }
                 for r in classification['below_pvpm']
             ]
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(data, f, indent=2, ensure_ascii=False,
+                          default=decimal_default)
             files['below_pvpm'] = file_path
 
         # 2. Oportunidades de ganar buybox
@@ -326,7 +346,8 @@ class PriceAnalysisService(AsyncService):
                 f"buybox_opportunities_{timestamp}.json"
             data = [r.to_dict() for r in classification['buybox_list']]
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(data, f, indent=2, ensure_ascii=False,
+                          default=decimal_default)
             files['buybox_opportunities'] = file_path
 
         # 3. Oportunidades de bajar precio
@@ -335,7 +356,8 @@ class PriceAnalysisService(AsyncService):
                 f"lower_price_opportunities_{timestamp}.json"
             data = [r.to_dict() for r in classification['lower_price_list']]
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(data, f, indent=2, ensure_ascii=False,
+                          default=decimal_default)
             files['lower_price_opportunities'] = file_path
 
         self.logger.info(f"📁 Generados {len(files)} archivos de análisis")
@@ -380,7 +402,7 @@ class PriceAnalysisService(AsyncService):
 
         subject = "[ANÁLISIS] Precios Amazon - Oportunidades Detectadas"
         if classification['critical_below_pvpm'] > 0:
-            subject = "🚨 [CRÍTICO] Precios por debajo de PVPM detectados"
+            subject = "[CRÍTICO] Precios por debajo de PVPM detectados"
 
         html_body = f"""
         <html>

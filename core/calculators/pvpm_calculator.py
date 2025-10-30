@@ -2,6 +2,8 @@
 Calculador de Precio de Venta Público Mínimo (PVPM)
 Formula: pvpm = (((coste / margen) * IVA) + (coste_envío * IVA)) / IVA
 """
+from decimal import Decimal
+import logging
 import config.setting as st
 
 # Configuración de costes de envío por peso
@@ -14,6 +16,7 @@ class PVPMCalculator:
     def __init__(self):
         self.margen = st.PRICING_PARAMS['margen_coste']  # 75%
         self.iva = st.PRICING_PARAMS['iva']              # 21%
+        self.logger = logging.getLogger("AmazonManagement")
 
     def calculate_pvpm(self, coste: float, peso: float) -> float:
         """
@@ -30,8 +33,8 @@ class PVPMCalculator:
         coste_envio = self._calculate_shipping_cost(peso)
 
         # 2. Aplicar fórmula
-        pvpm = (((coste / self.margen) * self.iva) +
-                (coste_envio * self.iva)) / self.iva
+        pvpm = (((Decimal(coste) / Decimal(self.margen)) * Decimal(self.iva)) +
+                (Decimal(coste_envio) * Decimal(self.iva))) / Decimal(self.iva)
 
         return round(pvpm, 2)
 
@@ -52,10 +55,10 @@ class PVPMCalculator:
         # Buscar en tiers
         for tier in SHIPPING_CONFIG['weight_tiers']:
             if peso <= tier['max_weight']:
-                return tier['cost']
+                return Decimal(tier['cost'])
 
         # Más de 20kg: 9.25 + (peso-20) * 0.47
         return (
-            SHIPPING_CONFIG['over_20kg_base'] +
-            (peso - 20) * SHIPPING_CONFIG['over_20kg_rate']
+            Decimal(SHIPPING_CONFIG['over_20kg_base']) +
+            Decimal((peso - 20)) * Decimal(SHIPPING_CONFIG['over_20kg_rate'])
         )
