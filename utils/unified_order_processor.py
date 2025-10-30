@@ -52,8 +52,8 @@ class UnifiedOrderProcessor:
     async def run(self, mode: ProcessMode):
         """FLUJO DE EJECUCIÓN"""
         # Crear configuración para el modo
-        debug_info = self.datetime_helper.get_debug_info()
-        self.logger.info(f"DateTime debug info: {debug_info}")
+        # debug_info = self.datetime_helper.get_debug_info()
+        # self.logger.info(f"DateTime debug info: {debug_info}")
         self.logger.info(f"Modo recibido para procesar: {mode}")
 
         service_map = {

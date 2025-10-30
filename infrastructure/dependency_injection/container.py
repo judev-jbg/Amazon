@@ -37,7 +37,7 @@ class DependencyContainer:
         self._services: Dict[str, Any] = {}
         self._factories: Dict[str, Callable] = {}
         self._singletons: Dict[str, Any] = {}
-        self.logger = logging.getLogger("AmazonManagement")
+        # self.logger = logging.getLogger("AmazonManagement")
 
     def register_singleton(self, interface: Type, factory: Callable) -> None:
         """

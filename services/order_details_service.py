@@ -1,11 +1,9 @@
-# services/order_details_service.py
-import logging
+
 import pandas as pd
 from config import setting as st
 from pathlib import Path
 from typing import List
 from datetime import datetime
-
 from infrastructure.data_validator import DataValidator
 from infrastructure.error_handling import EnhancedErrorHandler
 from infrastructure.metrics_collector import MetricsCollector
@@ -101,6 +99,12 @@ class OrderDetailsService(AsyncService):
                 )
 
                 # 11. Notificación de éxito
+                self.logger.info(
+                    f"✔️ OrderDetails procesado"
+                    f"Insertados: {insert_count}"
+                    f"Actualizados: {update_count}"
+                    f"Errores: {len(validation_errors)}"
+                )
                 await self._send_success_notification(insert_count, update_count, validation_errors)
 
                 await self._ensure_finished()
