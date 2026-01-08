@@ -133,7 +133,7 @@ class UnifiedOrderProcessor:
     async def _run_api_service(self, mode: ProcessMode):
         """Ejecutar servicios que usan API"""
         config = self._get_config_for_mode(mode)
-        await self.service.extract_orders(config)
+        return await self.service.extract_orders(config)
 
     async def _run_order_details(self, mode: ProcessMode):
         """Ejecutar servicio de OrderDetails"""

@@ -36,6 +36,11 @@ class IOrderRepository(ABC):
         """Obtener timestamp de última sincronización"""
         pass
 
+    @abstractmethod
+    async def delete_orders(self, order_ids: List[str]) -> None:
+        """Eliminar órdenes por amazonOrderId"""
+        pass
+
 
 class IOrderItemRepository(ABC):
     """Interface para operaciones de items de órdenes"""

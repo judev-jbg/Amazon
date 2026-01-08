@@ -85,7 +85,7 @@ class OrderRepository(IOrderRepository):
                 query = """
                 SELECT amazonOrderId, orderStatus, lastUpdateDate
                 FROM orders 
-                WHERE orderStatus IN ('Pending', 'Unshipped', 'Canceled')
+                WHERE orderStatus IN ('Pending')
                 AND lastUpdateDate < %s
                 """
                 await cursor.execute(query, (cutoff_date,))
@@ -99,6 +99,19 @@ class OrderRepository(IOrderRepository):
                 await cursor.execute(query)
                 result = await cursor.fetchone()
                 return result[0] if result[0] else datetime.now() - timedelta(hours=1)
+
+    async def delete_orders(self, order_ids: List[str]) -> None:
+        """Eliminar órdenes por amazonOrderId"""
+        if not order_ids:
+            return
+
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                query = "DELETE FROM orders WHERE amazonOrderId = %s"
+                data = [(order_id,) for order_id in order_ids]
+                await cursor.executemany(query, data)
+
+        self.logger.info(f"Eliminadas {len(order_ids)} órdenes")
 
     def _build_upsert_query(self) -> str:
         """Construir query de upsert"""

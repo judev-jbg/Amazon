@@ -91,37 +91,68 @@ class StatusUpdateExtraction(ExtractionStrategy):
         return (old_order['orderStatus'] != new_order['orderStatus'] or
                 old_order['lastUpdateDate'] != new_order['lastUpdateDate'])
 
-        """
-        Limpiar nombres de columnas quitando el sufijo '_o'
-        """
-
-        clean_order = {}
-        for key, value in order.items():
-            if key.endswith('_o'):
-                clean_key = key[:-2]  # Quitar '_o'
-                clean_order[clean_key] = value
-            else:
-                clean_order[key] = value
-
-        # Añadir timestamp de carga
-        clean_order['loadDate'] = str(datetime.date(datetime.now()))
-        clean_order['loadDateTime'] = datetime.now()
-
-        return clean_order
-
 
 class WeeklyCatchUpExtraction(ExtractionStrategy):
     async def extract(self, config: ExtractionConfig) -> List[dict]:
-        # Solo órdenes que realmente necesitan reproceso
-        stale_orders = await self.db_manager.get_stale_orders(
+        """
+        Reprocesar órdenes Pending que pueden haber cambiado en Amazon
+        e insertar órdenes que no existen en la BD
+        """
+        # 1. Obtener órdenes Pending de la BD que necesitan verificación
+        stale_orders = await self.db_manager.orders.get_stale_orders(
             older_than=timedelta(days=7)
         )
 
-        orders_to_refresh = []
-        for order in stale_orders:
-            # Verificar si realmente necesita actualización
-            current_order = await self.api_client.get_order(order['amazonOrderId'])
-            if self._needs_refresh(order, current_order):
-                orders_to_refresh.append(current_order)
+        self.logger.info(f"Órdenes Pending en BD a verificar: {len(stale_orders)}")
 
-        return orders_to_refresh
+        # 2. Obtener órdenes de Amazon para el mismo período
+        api_orders = await self.api_client.get_orders_paginated(
+            date_from=config.date_from,
+            date_to=config.date_to,
+            markets=config.markets
+        )
+
+        self.logger.info(f"Órdenes obtenidas de Amazon API: {len(api_orders)}")
+
+        # 3. Crear diccionarios para comparación rápida
+        stale_orders_dict = {order['amazonOrderId']: order for order in stale_orders}
+        api_orders_dict = {order['amazonOrderId']: order for order in api_orders}
+
+        # 4. Identificar órdenes que necesitan actualización o inserción
+        orders_to_delete = []  # Para eliminar y reinsertar
+        orders_to_insert = []  # Para insertar nuevas
+
+        # Verificar órdenes existentes que han cambiado
+        for order_id, api_order in api_orders_dict.items():
+            if order_id in stale_orders_dict:
+                # Existe en BD, verificar si cambió
+                if self._needs_refresh(stale_orders_dict[order_id], api_order):
+                    orders_to_delete.append(order_id)
+                    orders_to_insert.append(api_order)
+            else:
+                # No existe en BD, insertar
+                orders_to_insert.append(api_order)
+
+        self.logger.info(f"Órdenes a eliminar y reinsertar: {len(orders_to_delete)}")
+        self.logger.info(f"Órdenes totales a insertar: {len(orders_to_insert)}")
+
+        # 5. Eliminar órdenes que han cambiado
+        if orders_to_delete:
+            await self.db_manager.orders.delete_orders(orders_to_delete)
+
+        # 6. Retornar todas las órdenes a insertar
+        return orders_to_insert
+
+    def _needs_refresh(self, db_order: dict, api_order: dict) -> bool:
+        """
+        Verificar si una orden necesita actualización
+        Compara orderStatus, lastUpdateDate u otros campos relevantes
+        """
+        if not api_order:
+            return False
+
+        # Verificar cambios en campos críticos
+        status_changed = db_order.get('orderStatus') != api_order.get('orderStatus')
+        last_update_changed = db_order.get('lastUpdateDate') != api_order.get('lastUpdateDate')
+
+        return status_changed or last_update_changed
