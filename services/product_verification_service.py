@@ -259,7 +259,7 @@ class ProductVerificationService(AsyncService):
         files: Dict[str, Path]
     ):
         """Notificar resultados de verificación"""
-        subject = "[VERIFICACIÓN] Productos Amazon - Discrepancias Encontradas"
+        subject = "[EXITO] Amazon Management: Discrepancias Encontradas"
 
         files_section = "<ul>"
         for file_type, file_path in files.items():

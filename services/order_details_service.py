@@ -1,4 +1,5 @@
 
+import logging
 import pandas as pd
 from config import setting as st
 from pathlib import Path
@@ -28,6 +29,7 @@ class OrderDetailsService(AsyncService):
         # Registrar dependencias
         self.register_dependency(self.db_manager)
         self.register_dependency(self.error_handler)
+        self.logger = logging.getLogger("AmazonManagement")
         self.logger.info("🚀 OrderDetailsService inicializado")
 
     async def process_order_details(self) -> bool:
@@ -100,10 +102,10 @@ class OrderDetailsService(AsyncService):
 
                 # 11. Notificación de éxito
                 self.logger.info(
-                    f"✔️ OrderDetails procesado"
-                    f"Insertados: {insert_count}"
-                    f"Actualizados: {update_count}"
-                    f"Errores: {len(validation_errors)}"
+                    f"\n✔️ OrderDetails procesado"
+                    f"\nInsertados: {insert_count}"
+                    f"\nActualizados: {update_count}"
+                    f"\nErrores: {len(validation_errors)}"
                 )
                 await self._send_success_notification(insert_count, update_count, validation_errors)
 

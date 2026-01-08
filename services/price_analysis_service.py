@@ -284,7 +284,33 @@ class PriceAnalysisService(AsyncService):
         buybox_opportunities = []
         lower_price_opportunities = []
 
+        if results is None:
+            self.logger.warning("No hay resultados para clasificar")
+            return {
+                'below_pvpm': below_pvpm,
+                'below_pvpm_count': 0,
+                'buybox_opportunities': 0,
+                'buybox_list': buybox_opportunities,
+                'lower_price_opportunities': 0,
+                'lower_price_list': lower_price_opportunities,
+                'critical_below_pvpm': 0
+            }
+
         for result in results:
+
+            if result is None:
+                continue
+
+            if not result.current_price:
+                self.logger.warning(
+                    f"Producto {result.sku} no tiene precio actual")
+                continue
+
+            if not result.pvpm:
+                self.logger.warning(
+                    f"Producto {result.sku} no tiene PVPM calculado")
+                continue
+
             # CRÍTICO: Precio por debajo de PVPM
             if Decimal(result.current_price) < Decimal(result.pvpm):
                 below_pvpm.append(result)
@@ -440,6 +466,3 @@ class PriceAnalysisService(AsyncService):
             html_body=html_body,
             recipients=recipients
         )
-
-
-# Necesitarás importar asyncio al inicio del archivo
